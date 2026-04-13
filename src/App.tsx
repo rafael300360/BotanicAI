@@ -250,11 +250,15 @@ class OpenRouterClient {
 }
 
 const getAIService = () => {
-  // En Vite, las variables de entorno para producción deben empezar por VITE_
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY');
   
+  if (import.meta.env.DEV) {
+    console.log("BotanicAI: Servicio de IA inicializado en modo Desarrollo.");
+  } else {
+    console.log("BotanicAI: Verificando configuración de IA...", apiKey ? "Clave detectada ✅" : "Clave ausente ❌");
+  }
+
   if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
-    console.warn("API KEY no configurada.");
     return null;
   }
   
