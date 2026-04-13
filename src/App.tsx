@@ -250,8 +250,8 @@ class OpenRouterClient {
 }
 
 const getAIService = () => {
-  const localKey = localStorage.getItem('BOTANIC_API_KEY');
-  const apiKey = (localKey && localKey.trim() !== '') ? localKey : process.env.GEMINI_API_KEY;
+  // En Vite, las variables de entorno para producción deben empezar por VITE_
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY');
   
   if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
     console.warn("API KEY no configurada.");
