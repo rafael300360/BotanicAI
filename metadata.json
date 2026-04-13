@@ -1,0 +1,5 @@
+{
+  "name": "BotanicAI",
+  "description": "Tu asistente experto en botánica para el cuidado y diagnóstico de tus plantas.",
+  "requestFramePermissions": ["camera", "geolocation"]
+}
