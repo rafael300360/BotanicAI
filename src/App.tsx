@@ -120,11 +120,144 @@ const Logo = ({ className }: { className?: string }) => (
 
 import { getCountries, getCountryCallingCode, isValidPhoneNumber, parsePhoneNumber, type CountryCode } from 'libphonenumber-js';
 
+class OpenRouterModel {
+  modelId: string;
+  apiKey: string;
+  systemInstruction?: string;
+
+  constructor(modelId: string, apiKey: string, systemInstruction?: any) {
+    this.modelId = modelId;
+    this.apiKey = apiKey;
+    this.systemInstruction = typeof systemInstruction === 'string' ? systemInstruction : systemInstruction?.parts?.[0]?.text;
+  }
+
+  async generateContent(parts: any[]) {
+    const messages: any[] = [];
+    if (this.systemInstruction) {
+        messages.push({ role: 'system', content: this.systemInstruction });
+    }
+
+    const contentParts = Array.isArray(parts) ? parts : [parts];
+    const userContent: any[] = [];
+
+    for (const part of contentParts) {
+      if (typeof part === 'string') {
+        userContent.push({ type: 'text', text: part });
+      } else if (part.inlineData) {
+        userContent.push({
+          type: 'image_url',
+          image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
+        });
+      }
+    }
+
+    messages.push({ role: 'user', content: userContent });
+
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": window.location.origin,
+        "X-Title": "BotanicAI"
+      },
+      body: JSON.stringify({
+        model: this.modelId,
+        messages,
+      })
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || "Error en OpenRouter");
+    
+    return {
+      response: {
+        text: () => data.choices[0].message.content
+      }
+    };
+  }
+
+  startChat(options: any) {
+    return new OpenRouterChatSession(this.modelId, this.apiKey, this.systemInstruction, options.history || []);
+  }
+}
+
+class OpenRouterChatSession {
+    modelId: string;
+    apiKey: string;
+    systemInstruction?: string;
+    history: any[];
+
+    constructor(modelId: string, apiKey: string, systemInstruction: any, history: any[]) {
+        this.modelId = modelId;
+        this.apiKey = apiKey;
+        this.systemInstruction = systemInstruction;
+        this.history = history;
+    }
+
+    async sendMessage(msg: string) {
+        const messages: any[] = [];
+        if (this.systemInstruction) {
+            messages.push({ role: 'system', content: this.systemInstruction });
+        }
+
+        for (const h of this.history) {
+            messages.push({ 
+                role: h.role === 'model' ? 'assistant' : 'user', 
+                content: h.parts[0].text 
+            });
+        }
+
+        messages.push({ role: 'user', content: msg });
+
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${this.apiKey}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": window.location.origin,
+                "X-Title": "BotanicAI"
+            },
+            body: JSON.stringify({
+                model: this.modelId,
+                messages,
+            })
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message || "Error en OpenRouter");
+
+        const botText = data.choices[0].message.content;
+        this.history.push({ role: 'user', parts: [{ text: msg }] });
+        this.history.push({ role: 'model', parts: [{ text: botText }] });
+
+        return {
+            response: {
+                text: () => botText
+            }
+        };
+    }
+}
+
+class OpenRouterClient {
+    apiKey: string;
+    constructor(apiKey: string) { this.apiKey = apiKey; }
+    getGenerativeModel({ model, systemInstruction }: any) {
+        // Usar modelo gratuito por defecto si no es una ruta completa
+        const orModel = model.includes('/') ? model : "google/gemini-2.0-flash-lite-preview-02-05:free";
+        return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
+    }
+}
+
 const getAIService = () => {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "undefined") {
-    console.warn("GEMINI_API_KEY no configurada. Las funciones de IA estarán limitadas.");
+  if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
+    console.warn("API KEY no configurada.");
     return null;
+  }
+  
+  if (apiKey.startsWith('sk-or-')) {
+    return new OpenRouterClient(apiKey);
   }
   return new GoogleGenAI(apiKey);
 };
