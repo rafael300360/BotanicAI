@@ -44,7 +44,7 @@ import {
   MessageCircle as ChatBubble, 
   Flower2 as LocalFlorist,
   User as Person,
-  ArrowLeft as ArrowBack,
+  Settings,
   ShieldCheck as HealthAndSafety,
   Calendar as EventUpcoming,
   ChevronRight,
@@ -250,7 +250,9 @@ class OpenRouterClient {
 }
 
 const getAIService = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const localKey = localStorage.getItem('BOTANIC_API_KEY');
+  const apiKey = (localKey && localKey.trim() !== '') ? localKey : process.env.GEMINI_API_KEY;
+  
   if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
     console.warn("API KEY no configurada.");
     return null;
@@ -379,7 +381,7 @@ const PRO_EMAILS = ['rafael.rafaeltorres@gmail.com', 'rafaelgemini60@gmail.com',
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'camera' | 'chat' | 'plants' | 'community' | 'tools' | 'profile' | 'notifications' | 'privacy' | 'help' | 'pro-benefits'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'camera' | 'chat' | 'plants' | 'community' | 'tools' | 'profile' | 'notifications' | 'privacy' | 'help' | 'pro-benefits' | 'settings'>('home');
   const [communitySubTab, setCommunitySubTab] = useState<'menu' | 'feed' | 'experts' | 'tips' | 'chat'>('menu');
   const [activeChatRoom, setActiveChatRoom] = useState<ChatRoom | null>(null);
   const [roomUnreadCounts, setRoomUnreadCounts] = useState<Record<string, number>>({});
@@ -941,6 +943,16 @@ export default function App() {
                 <ToolsContent />
               </motion.div>
             )}
+            {activeTab === 'settings' && (
+              <motion.div 
+                key="settings"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+              >
+                <SettingsContent />
+              </motion.div>
+            )}
           </AnimatePresence>
         </main>
 
@@ -1116,6 +1128,7 @@ function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChat
     { icon: Person, label: 'Mi Perfil', tab: 'profile' },
     { icon: ChatBubble, label: 'Comunidad Pro', tab: 'community', badge: totalUnread },
     { icon: Notifications, label: 'Notificaciones', tab: 'notifications' },
+    { icon: Settings, label: 'Configuración', tab: 'settings' },
     { icon: HealthAndSafety, label: 'Privacidad', tab: 'privacy' },
     { icon: PriorityHigh, label: 'Ayuda y Soporte', tab: 'help' },
   ];
@@ -4539,6 +4552,82 @@ function HelpContent() {
         <h3 className="font-bold text-primary">¿Necesitas más ayuda?</h3>
         <p className="text-sm text-on-surface-variant">Nuestro equipo de soporte está disponible 24/7 para ayudarte con cualquier problema técnico.</p>
         <button className="text-primary font-black underline">Contactar Soporte</button>
+      </div>
+    </div>
+  );
+}
+
+function SettingsContent() {
+  const [apiKey, setApiKey] = useState(localStorage.getItem('BOTANIC_API_KEY') || '');
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    localStorage.setItem('BOTANIC_API_KEY', apiKey.trim());
+    setSaved(true);
+    setTimeout(() => {
+      setSaved(false);
+      window.location.reload(); // Reload to re-initialize AI service
+    }, 1500);
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-10 pb-12">
+      <div className="text-center space-y-4">
+        <div className="w-16 h-16 bg-primary/10 text-primary rounded-3xl flex items-center justify-center mx-auto shadow-sm">
+          <Settings className="w-8 h-8" />
+        </div>
+        <h2 className="text-3xl font-black tracking-tighter">Configuración</h2>
+        <p className="text-on-surface-variant font-medium">Gestiona tus claves de API para los servicios de IA.</p>
+      </div>
+
+      <div className="bg-surface-container-lowest p-8 rounded-[2.5rem] antigravity-shadow border border-surface-container space-y-8">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+             <div className="p-2 bg-primary/10 rounded-xl text-primary">
+               <FlashOn className="w-5 h-5" />
+             </div>
+             <h3 className="text-lg font-bold tracking-tight">OpenRouter / Gemini API Key</h3>
+          </div>
+          <p className="text-sm text-on-surface-variant leading-relaxed">
+            Pega aquí tu clave de <strong>OpenRouter</strong> (empieza por sk-or-...) para usar modelos gratuitos en BotanicAI.
+          </p>
+          <div className="relative group">
+            <input 
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk-or-v1-..."
+              className="w-full bg-surface-container-low border-2 border-transparent focus:border-primary/20 rounded-2xl p-5 text-sm font-bold transition-all focus:bg-white"
+            />
+          </div>
+        </div>
+
+        <button 
+          onClick={handleSave}
+          className="w-full bg-primary text-on-primary py-4 rounded-2xl font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-lg flex items-center justify-center gap-3"
+        >
+          {saved ? (
+            <>
+              <HealthAndSafety className="w-6 h-6" />
+              <span>Guardado. Reiniciando...</span>
+            </>
+          ) : (
+            <>
+              <AddCircle className="w-6 h-6" />
+              <span>Guardar Configuración</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="bg-primary/5 p-6 rounded-3xl border border-primary/10 space-y-3">
+        <h4 className="font-bold text-primary flex items-center gap-2">
+          <PriorityHigh className="w-4 h-4" />
+          Nota de Seguridad
+        </h4>
+        <p className="text-xs text-on-surface-variant leading-relaxed">
+          Tu clave se guarda localmente en este navegador (**localStorage**). Esto significa que nunca se envía a un servidor externo de BotanicAI, garantizando que solo tú tengas acceso a ella.
+        </p>
       </div>
     </div>
   );
