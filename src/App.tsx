@@ -156,9 +156,12 @@ class OpenRouterModel {
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
+      mode: 'cors',
       headers: {
         "Authorization": `Bearer ${this.apiKey.trim()}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://rafael300360.github.io/BotanicAI/",
+        "X-Title": "BotanicAI"
       },
       body: JSON.stringify({
         model: this.modelId,
@@ -274,7 +277,7 @@ class OpenRouterClient {
             if (orModel.includes('/')) {
                 orModel = `${orModel}:free`;
             } else {
-                orModel = "meta-llama/llama-3.1-8b-instruct:free";
+                orModel = "google/gemini-2.0-flash-lite-preview-02-05:free";
             }
         }
         return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
