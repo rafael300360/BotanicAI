@@ -273,11 +273,11 @@ class OpenRouterClient {
         const systemInstruction = typeof args === 'object' ? args.systemInstruction : undefined;
         // Forzar uso de modelos gratuitos de OpenRouter
         let orModel = modelStr;
-        if (!orModel.includes(':free')) {
+        if (!orModel.includes(':free') && !orModel.includes('/auto')) {
             if (orModel.includes('/')) {
                 orModel = `${orModel}:free`;
             } else {
-                orModel = "google/gemini-2.0-flash-lite-preview-02-05:free";
+                orModel = "google/gemini-2.0-flash-exp:free";
             }
         }
         return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
@@ -1048,7 +1048,7 @@ function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unre
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2 hidden sm:flex">
               <Logo className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.5</span></h1>
+            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.6</span></h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
