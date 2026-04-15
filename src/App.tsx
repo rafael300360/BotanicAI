@@ -274,7 +274,7 @@ class OpenRouterClient {
             if (orModel.includes('/')) {
                 orModel = `${orModel}:free`;
             } else {
-                orModel = "google/gemini-2.0-flash-lite-preview-02-05:free";
+                orModel = "meta-llama/llama-3.1-8b-instruct:free";
             }
         }
         return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
@@ -282,17 +282,15 @@ class OpenRouterClient {
 }
 
 const getAIService = () => {
-  // Clave de respaldo hardcoded para asegurar funcionamiento en GitHub Pages (BotanicAI v6.0 PRO)
-  const fallbackKey = "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";
+  // Clave de respaldo hardcoded para asegurar funcionamiento en GitHub Pages (BotanicAI v6.1.2)
+  const fallbackKey = "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".trim();
   const rawKey = import.meta.env.VITE_OPENROUTER_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY') || fallbackKey;
   const apiKey = typeof rawKey === 'string' ? rawKey.trim() : rawKey;
   
-  if (import.meta.env.DEV) {
-    const keyType = apiKey.startsWith('sk-or-') ? 'OpenRouter' : 'Gemini';
-    console.log(`BotanicAI v6.1 PRO: IA activada (${keyType}) | Fuente: ${import.meta.env.VITE_OPENROUTER_API_KEY ? 'ENV' : 'LocalStorage/Fallback'}`);
-  } else {
-    // Diagnóstico silencioso
-    if (!apiKey) console.error("Falta API Key");
+  if (true) { // Log always for now
+    const keyType = (apiKey && apiKey.startsWith('sk-or-')) ? 'OpenRouter' : 'Gemini';
+    const keySnippet = apiKey ? (apiKey.substring(0, 8) + "..." + apiKey.substring(apiKey.length - 4)) : "vacia";
+    console.log(`BotanicAI Diagnostic: v6.1.2 | IA: ${keyType} | Key: ${keySnippet}`);
   }
 
   if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
@@ -1047,7 +1045,7 @@ function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unre
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2 hidden sm:flex">
               <Logo className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.0</span></h1>
+            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.2</span></h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
