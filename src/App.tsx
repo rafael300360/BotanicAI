@@ -1045,7 +1045,7 @@ function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unre
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2 hidden sm:flex">
               <Logo className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.2</span></h1>
+            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.3</span></h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -1134,7 +1134,7 @@ function LoginScreen() {
           <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl border-4 border-primary/20 text-primary p-5 group">
             <Logo className="w-full h-full group-hover:scale-110 transition-transform duration-500" />
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight text-primary">BotanicAI <span className="text-sm font-medium bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.0</span></h1>
+          <h1 className="text-4xl font-extrabold tracking-tight text-primary">BotanicAI <span className="text-sm font-medium bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.3</span></h1>
           <h2 className="text-3xl font-bold leading-tight px-4">Cultiva la inteligencia de tu jardín.</h2>
           <p className="text-on-surface-variant text-lg px-6">Una conexión etérea entre la tecnología y la naturaleza.</p>
         </div>
@@ -1212,7 +1212,7 @@ function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChat
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2">
                 <Logo className="w-full h-full" />
               </div>
-              <h2 className="text-2xl font-extrabold text-primary">BotanicAI <span className="text-sm font-medium opacity-40">v6.1.0</span></h2>
+              <h2 className="text-2xl font-extrabold text-primary">BotanicAI <span className="text-sm font-medium opacity-40">v6.1.3</span></h2>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-surface-container rounded-full">
               <X className="w-6 h-6" />
