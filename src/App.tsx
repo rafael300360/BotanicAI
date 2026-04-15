@@ -282,16 +282,16 @@ class OpenRouterClient {
 }
 
 const getAIService = () => {
-  // Clave de respaldo hardcoded para asegurar funcionamiento en GitHub Pages (BotanicAI v6.1.2)
-  const fallbackKey = "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".trim();
-  const rawKey = import.meta.env.VITE_OPENROUTER_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY') || fallbackKey;
-  const apiKey = typeof rawKey === 'string' ? rawKey.trim() : rawKey;
+  const fallbackKey = "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";
+  const sources = [
+    import.meta.env.VITE_OPENROUTER_API_KEY,
+    import.meta.env.VITE_GEMINI_API_KEY,
+    localStorage.getItem('BOTANIC_API_KEY')
+  ];
+
+  const apiKey = sources.find(k => k && k !== "undefined" && k !== "null" && k.trim() !== "")?.trim() || fallbackKey.trim();
   
-  if (true) { // Log always for now
-    const keyType = (apiKey && apiKey.startsWith('sk-or-')) ? 'OpenRouter' : 'Gemini';
-    const keySnippet = apiKey ? (apiKey.substring(0, 8) + "..." + apiKey.substring(apiKey.length - 4)) : "vacia";
-    console.log(`BotanicAI Diagnostic: v6.1.2 | IA: ${keyType} | Key: ${keySnippet}`);
-  }
+  console.log(`BotanicAI v6.1.3 | IA: ${apiKey.startsWith('sk-or-') ? 'OpenRouter' : 'Gemini'}`);
 
   if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
     return null;
