@@ -178,9 +178,10 @@ class OpenRouterModel {
         throw new Error(`Error al conectar con OpenRouter: ${e.message}`);
     }
     
-    if (data.error) {
+        if (data.error?.message?.includes("User not found")) {
+            throw new Error(`OpenRouter dice que el usuario no existe. Revisa que tu API Key sea válida en Configuración.`);
+        }
         throw new Error(`OpenRouter Error: ${data.error.message || "Error desconocido"}`);
-    }
     
     let botText = data.choices?.[0]?.message?.content;
     
@@ -273,7 +274,7 @@ class OpenRouterClient {
             if (orModel.includes('/')) {
                 orModel = `${orModel}:free`;
             } else {
-                orModel = "google/gemini-2.0-flash-exp:free";
+                orModel = "google/gemini-2.0-flash-lite-preview-02-05:free";
             }
         }
         return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
@@ -283,7 +284,8 @@ class OpenRouterClient {
 const getAIService = () => {
   // Clave de respaldo hardcoded para asegurar funcionamiento en GitHub Pages (BotanicAI v6.0 PRO)
   const fallbackKey = "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";
-  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY') || fallbackKey;
+  const rawKey = import.meta.env.VITE_OPENROUTER_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY') || fallbackKey;
+  const apiKey = typeof rawKey === 'string' ? rawKey.trim() : rawKey;
   
   if (import.meta.env.DEV) {
     const keyType = apiKey.startsWith('sk-or-') ? 'OpenRouter' : 'Gemini';
