@@ -1,7 +1,7 @@
 {
   "name": "botanicai",
   "private": true,
-  "version": "0.0.0",
+  "version": "6.0.0-PRO",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

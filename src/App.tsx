@@ -1,5 +1,6 @@
-// v3.8 - OpenRouter Migration & Cache Break Forced
+// v6.1 PRO - High Precision Edition & Cache Burner
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+console.log("%c BotanicAI v6.1 PRO - Force Update ", "background: #222; color: #bada55; font-size: 20px;");
 import { 
   onAuthStateChanged, 
   User 
@@ -165,16 +166,25 @@ class OpenRouterModel {
       })
     });
 
-    const data = await response.json().catch(() => ({ error: { message: "La respuesta de la IA no es válida." } }));
-    
-    if (data.error) {
-        const keySnippet = this.apiKey.substring(0, 10);
-        throw new Error(`OpenRouter (${keySnippet}...): ${data.error.message || "Error desconocido"}`);
+    let data;
+    try {
+        const text = await response.text();
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            throw new Error(`OpenRouter devolvió una respuesta no válida (HTTP ${response.status}): ${text.substring(0, 100)}...`);
+        }
+    } catch (e: any) {
+        throw new Error(`Error al conectar con OpenRouter: ${e.message}`);
     }
     
-    let botText = data.choices && data.choices[0] ? data.choices[0].message.content : "";
+    if (data.error) {
+        throw new Error(`OpenRouter Error: ${data.error.message || "Error desconocido"}`);
+    }
     
-    if (!botText) throw new Error("La IA respondió en blanco. Prueba de nuevo.");
+    let botText = data.choices?.[0]?.message?.content;
+    
+    if (!botText) throw new Error("La IA respondió en blanco o sin contenido. Prueba de nuevo.");
 
     // Limpiar bloques de código si el modelo los incluyó
     if (botText.includes("```")) {
@@ -257,19 +267,27 @@ class OpenRouterClient {
     getGenerativeModel(args: any) {
         const modelStr = typeof args === 'string' ? args : args.model;
         const systemInstruction = typeof args === 'object' ? args.systemInstruction : undefined;
-        // Usar modelo gratuito oficial de OpenRouter
-        const orModel = modelStr.includes('/') ? modelStr : "google/gemini-2.0-flash-exp:free";
+        // Forzar uso de modelos gratuitos de OpenRouter
+        let orModel = modelStr;
+        if (!orModel.includes(':free')) {
+            if (orModel.includes('/')) {
+                orModel = `${orModel}:free`;
+            } else {
+                orModel = "google/gemini-2.0-flash-exp:free";
+            }
+        }
         return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
     }
 }
 
 const getAIService = () => {
-  // Clave de respaldo hardcoded para asegurar funcionamiento en GitHub Pages
-  const fallbackKey = "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";
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY') || fallbackKey;
+  // Clave de respaldo hardcoded para asegurar funcionamiento en GitHub Pages (BotanicAI v6.0 PRO)
+  const fallbackKey = "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";
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY') || fallbackKey;
   
   if (import.meta.env.DEV) {
-    console.log("BotanicAI v4.0: Servicio de IA en modo DEV.");
+    const keyType = apiKey.startsWith('sk-or-') ? 'OpenRouter' : 'Gemini';
+    console.log(`BotanicAI v6.1 PRO: IA activada (${keyType}) | Fuente: ${import.meta.env.VITE_OPENROUTER_API_KEY ? 'ENV' : 'LocalStorage/Fallback'}`);
   } else {
     // Diagnóstico silencioso
     if (!apiKey) console.error("Falta API Key");
@@ -434,6 +452,21 @@ export default function App() {
   const postsRef = useRef<CommunityPost[]>([]);
   const prevCommunityState = useRef({ postCount: 0, totalComments: 0 });
   const isFirstCommunityLoad = useRef(true);
+
+  // Global touch lock to prevent viewport zooming on mobile (essential for magnifier)
+  useEffect(() => {
+    const handleTouch = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        if (e.cancelable) e.preventDefault();
+      }
+    };
+    document.addEventListener('touchstart', handleTouch, { passive: false });
+    document.addEventListener('touchmove', handleTouch, { passive: false });
+    return () => {
+      document.removeEventListener('touchstart', handleTouch);
+      document.removeEventListener('touchmove', handleTouch);
+    };
+  }, []);
 
   // Sync refs with state in render (or use effects)
   activeTabRef.current = activeTab;
@@ -1012,7 +1045,7 @@ function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unre
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2 hidden sm:flex">
               <Logo className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v5.0 PRO</span></h1>
+            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.0 PRO</span></h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -1101,7 +1134,7 @@ function LoginScreen() {
           <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl border-4 border-primary/20 text-primary p-5 group">
             <Logo className="w-full h-full group-hover:scale-110 transition-transform duration-500" />
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight text-primary">BotanicAI <span className="text-sm font-medium bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v5.0 PRO</span></h1>
+          <h1 className="text-4xl font-extrabold tracking-tight text-primary">BotanicAI <span className="text-sm font-medium bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.0 PRO</span></h1>
           <h2 className="text-3xl font-bold leading-tight px-4">Cultiva la inteligencia de tu jardín.</h2>
           <p className="text-on-surface-variant text-lg px-6">Una conexión etérea entre la tecnología y la naturaleza.</p>
         </div>
@@ -1179,7 +1212,7 @@ function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChat
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2">
                 <Logo className="w-full h-full" />
               </div>
-              <h2 className="text-2xl font-extrabold text-primary">BotanicAI <span className="text-sm font-medium opacity-40">v3.8</span></h2>
+              <h2 className="text-2xl font-extrabold text-primary">BotanicAI <span className="text-sm font-medium opacity-40">v6.0 PRO</span></h2>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-surface-container rounded-full">
               <X className="w-6 h-6" />
@@ -1783,84 +1816,109 @@ function PlantTipsSection({ species }: { species: string }) {
 
 function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const magnifierCanvasRef = useRef<HTMLCanvasElement>(null);
+  const captureCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [touchDist, setTouchDist] = useState(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const requestRef = useRef<number>();
+  const initTimeoutRef = useRef<NodeJS.Timeout>();
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      console.log("Stopping camera tracks...");
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log(`Track ${track.kind} stopped`);
+      });
+      streamRef.current = null;
+    }
+    setStream(null);
+  };
+
+  const init = async () => {
+    stopCamera();
+    setCameraError(null);
+    try {
+      console.log("Requesting camera access...");
+      const s = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          frameRate: { ideal: 30 }
+        } 
+      });
+      
+      setStream(s);
+      streamRef.current = s;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = s;
+        try {
+          await videoRef.current.play();
+        } catch (e) {
+          console.error("Auto-play failed:", e);
+        }
+        
+        // Forzar alta calidad después de un breve delay
+        initTimeoutRef.current = setTimeout(async () => {
+          if (!streamRef.current) return;
+          const track = streamRef.current.getVideoTracks()[0];
+          try {
+            await track.applyConstraints({
+              width: { ideal: 3840 },
+              height: { ideal: 2160 },
+              //@ts-ignore
+              focusMode: 'continuous',
+              //@ts-ignore
+              whiteBalanceMode: 'continuous'
+            });
+          } catch (e) { console.log("HD Constraints failed, using best possible"); }
+        }, 1000);
+      }
+    } catch (err: any) {
+      console.error("Camera access denied or error:", err);
+      setCameraError(err.message || "No se pudo acceder a la cámara");
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-    const init = async () => {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 3840 },
-            height: { ideal: 2160 },
-            frameRate: { ideal: 30 }
-          } 
-        });
-        if (active) {
-          setStream(s);
-          if (videoRef.current) {
-            videoRef.current.srcObject = s;
-            // Forzar alta calidad después de un breve delay
-            setTimeout(async () => {
-              const track = s.getVideoTracks()[0];
-              try {
-                await track.applyConstraints({
-                  width: { ideal: 3840 },
-                  height: { ideal: 2160 },
-                  //@ts-ignore
-                  focusMode: 'continuous',
-                  //@ts-ignore
-                  whiteBalanceMode: 'continuous'
-                });
-              } catch (e) { console.log("HD Constraints failed, using best possible"); }
-            }, 1000);
-          }
-        }
-      } catch (err) {
-        console.error("Camera access denied:", err);
-      }
-    };
-    
     init();
     const handleStatus = () => setIsOffline(!navigator.onLine);
     window.addEventListener('online', handleStatus);
     window.addEventListener('offline', handleStatus);
     return () => {
-      active = false;
       stopCamera();
+      if (initTimeoutRef.current) clearTimeout(initTimeoutRef.current);
       window.removeEventListener('online', handleStatus);
       window.removeEventListener('offline', handleStatus);
     };
   }, []);
 
   const updateMagnifier = () => {
-    if (zoom > 1 && videoRef.current && canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
+    if (zoom > 1 && videoRef.current && magnifierCanvasRef.current) {
+      const ctx = magnifierCanvasRef.current.getContext('2d');
       if (ctx) {
         const video = videoRef.current;
-        const canvas = canvasRef.current;
+        const canvas = magnifierCanvasRef.current;
         
-        // Dimensiones del recorte (centro del video)
-        const sourceWidth = video.videoWidth / zoom;
-        const sourceHeight = video.videoHeight / zoom;
-        const sourceX = (video.videoWidth - sourceWidth) / 2;
-        const sourceY = (video.videoHeight - sourceHeight) / 2;
+        // Dimensiones del recorte cuadrado (para evitar distorsión)
+        const size = Math.min(video.videoWidth, video.videoHeight) / zoom;
+        const sourceX = (video.videoWidth - size) / 2;
+        const sourceY = (video.videoHeight - size) / 2;
 
         ctx.drawImage(
           video,
-          sourceX, sourceY, sourceWidth, sourceHeight, // Origen
-          0, 0, canvas.width, canvas.height // Destino
+          sourceX, sourceY, size, size, // Origen cuadrado
+          0, 0, canvas.width, canvas.height // Destino (que ya es cuadrado)
         );
       }
     }
@@ -1875,24 +1933,7 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
   }, [zoom]);
 
   const startCamera = async () => {
-    if (stream) return;
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 3840 },
-          height: { ideal: 2160 }
-        } 
-      });
-      setStream(s);
-      if (videoRef.current) videoRef.current.srcObject = s;
-    } catch (err) {
-      console.error("Camera access denied:", err);
-    }
-  };
-
-  const stopCamera = () => {
-    stream?.getTracks().forEach(track => track.stop());
+    await init();
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -1943,21 +1984,21 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
   };
 
   const handleCapture = async () => {
-    if (!videoRef.current || !canvasRef.current || isAnalyzing) return;
+    if (!videoRef.current || !captureCanvasRef.current || isAnalyzing) return;
     
     setIsAnalyzing(true);
     try {
-      const context = canvasRef.current.getContext('2d');
+      const context = captureCanvasRef.current.getContext('2d');
       if (!context) {
         setIsAnalyzing(false);
         return;
       }
 
-      canvasRef.current.width = videoRef.current.videoWidth;
-      canvasRef.current.height = videoRef.current.videoHeight;
+      captureCanvasRef.current.width = videoRef.current.videoWidth;
+      captureCanvasRef.current.height = videoRef.current.videoHeight;
       context.drawImage(videoRef.current, 0, 0);
       
-      const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
+      const imageData = captureCanvasRef.current.toDataURL('image/jpeg', 0.8);
       setCapturedImage(imageData);
       await processImage(imageData);
     } catch (err) {
@@ -1997,7 +2038,7 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
     }
 
     if (!ai) {
-      alert("Servicio de IA no disponible. Por favor, configura la GEMINI_API_KEY.");
+      alert("Servicio de IA no disponible. Por favor, configura tu API Key en la sección de Configuración.");
       setIsAnalyzing(false);
       return;
     }
@@ -2073,7 +2114,7 @@ Responde estrictamente en JSON con este formato:
             >
               <Spa className="w-16 h-16 text-primary" />
             </motion.div>
-            <h2 className="text-3xl font-black mb-2 text-primary">BOTANICAI v3.8</h2>
+            <h2 className="text-3xl font-black mb-2 text-primary">BOTANICAI v6.1 PRO</h2>
             <h3 className="text-2xl font-bold mb-2">Analizando ahora mismo...</h3>
             <p className="text-white/70 text-sm max-w-xs">BotanicAI está consultando su base de datos científica para darte el mejor diagnóstico.</p>
           </div>
@@ -2085,8 +2126,32 @@ Responde estrictamente en JSON con este formato:
               ref={videoRef} 
               autoPlay 
               playsInline 
+              muted
               className="w-full h-full object-cover"
             />
+            
+            {cameraError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-white text-center bg-black/80">
+                <AlertCircle className="w-12 h-12 text-error mb-4" />
+                <p className="font-bold mb-4">Error de Cámara</p>
+                <p className="text-sm opacity-70 mb-6">{cameraError}</p>
+                <button 
+                  onClick={init}
+                  className="bg-primary text-on-primary px-6 py-2 rounded-full font-bold"
+                >
+                  Reintentar Cámara
+                </button>
+              </div>
+            )}
+            
+            {!stream && !cameraError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black">
+                <div className="animate-spin mb-4">
+                  <Camera className="w-8 h-8 opacity-20" />
+                </div>
+                <p className="text-xs opacity-50 uppercase tracking-widest">Iniciando Sensor...</p>
+              </div>
+            )}
             
             {/* Magnifying Glass Window (Canvas Based - High Res) */}
             {zoom > 1 && (
@@ -2097,7 +2162,7 @@ Responde estrictamente en JSON con este formato:
               >
                 <div className="w-80 h-80 rounded-full border-4 border-white shadow-[0_0_60px_rgba(0,0,0,0.7)] overflow-hidden bg-black ring-[100vw] ring-black/50">
                   <canvas 
-                    ref={canvasRef}
+                    ref={magnifierCanvasRef}
                     width={1024}
                     height={1024}
                     className="w-full h-full object-cover"
@@ -2148,7 +2213,7 @@ Responde estrictamente en JSON con este formato:
           </div>
         </>
       )}
-      <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={captureCanvasRef} className="hidden" />
       
       <div className="absolute inset-x-0 bottom-0 p-8 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/20 to-transparent">
         <button 
@@ -2285,7 +2350,7 @@ function ChatContent({ user, plants, location, isProMode, setActiveTab }: { user
     setSending(true);
 
     if (!ai) {
-      const errorMsg = "Servicio de IA no disponible. Por favor, configura la GEMINI_API_KEY.";
+      const errorMsg = "Servicio de IA no disponible. Por favor, configura tu API Key en la sección de Configuración.";
       setMessages(prev => [...prev, { role: 'bot', content: errorMsg }]);
       speak(errorMsg);
       setSending(false);
