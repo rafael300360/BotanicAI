@@ -2114,7 +2114,7 @@ Responde estrictamente en JSON con este formato:
             >
               <Spa className="w-16 h-16 text-primary" />
             </motion.div>
-            <h2 className="text-3xl font-black mb-2 text-primary">BOTANICAI v6.1 PRO</h2>
+            <h2 className="text-3xl font-black mb-2 text-primary">BOTANICAI v6.1.0</h2>
             <h3 className="text-2xl font-bold mb-2">Analizando ahora mismo...</h3>
             <p className="text-white/70 text-sm max-w-xs">BotanicAI está consultando su base de datos científica para darte el mejor diagnóstico.</p>
           </div>
