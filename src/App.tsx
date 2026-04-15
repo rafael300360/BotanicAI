@@ -287,14 +287,14 @@ class OpenRouterClient {
 const getAIService = () => {
   const fallbackKey = "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";
   const sources = [
+    localStorage.getItem('BOTANIC_API_KEY'),
     import.meta.env.VITE_OPENROUTER_API_KEY,
-    import.meta.env.VITE_GEMINI_API_KEY,
-    localStorage.getItem('BOTANIC_API_KEY')
+    import.meta.env.VITE_GEMINI_API_KEY
   ];
 
   const apiKey = sources.find(k => k && k !== "undefined" && k !== "null" && k.trim() !== "")?.trim() || fallbackKey.trim();
   
-  console.log(`BotanicAI v6.1.3 | IA: ${apiKey.startsWith('sk-or-') ? 'OpenRouter' : 'Gemini'}`);
+  console.log(`BotanicAI v6.1.5 | IA: ${apiKey.startsWith('sk-or-') ? 'OpenRouter' : 'Gemini'}`);
 
   if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
     return null;
@@ -1048,7 +1048,7 @@ function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unre
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2 hidden sm:flex">
               <Logo className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.3</span></h1>
+            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.5</span></h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
