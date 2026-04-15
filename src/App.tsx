@@ -1,4 +1,4 @@
-// v1.2 - Final fix for duplicates and colorful WhatsApp style
+// v3.8 - OpenRouter Migration & Cache Break Forced
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   onAuthStateChanged, 
@@ -156,10 +156,8 @@ class OpenRouterModel {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": window.location.origin,
-        "X-Title": "BotanicAI"
+        "Authorization": `Bearer ${this.apiKey.trim()}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         model: this.modelId,
@@ -167,12 +165,26 @@ class OpenRouterModel {
       })
     });
 
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message || "Error en OpenRouter");
+    const data = await response.json().catch(() => ({ error: { message: "La respuesta de la IA no es válida." } }));
+    
+    if (data.error) {
+        const keySnippet = this.apiKey.substring(0, 10);
+        throw new Error(`OpenRouter (${keySnippet}...): ${data.error.message || "Error desconocido"}`);
+    }
+    
+    let botText = data.choices && data.choices[0] ? data.choices[0].message.content : "";
+    
+    if (!botText) throw new Error("La IA respondió en blanco. Prueba de nuevo.");
+
+    // Limpiar bloques de código si el modelo los incluyó
+    if (botText.includes("```")) {
+        const match = botText.match(/\{[\s\S]*\}/);
+        if (match) botText = match[0];
+    }
     
     return {
       response: {
-        text: () => data.choices[0].message.content
+        text: () => botText
       }
     };
   }
@@ -242,20 +254,25 @@ class OpenRouterChatSession {
 class OpenRouterClient {
     apiKey: string;
     constructor(apiKey: string) { this.apiKey = apiKey; }
-    getGenerativeModel({ model, systemInstruction }: any) {
-        // Usar modelo gratuito por defecto si no es una ruta completa
-        const orModel = model.includes('/') ? model : "google/gemini-2.0-flash-lite-preview-02-05:free";
+    getGenerativeModel(args: any) {
+        const modelStr = typeof args === 'string' ? args : args.model;
+        const systemInstruction = typeof args === 'object' ? args.systemInstruction : undefined;
+        // Usar modelo gratuito oficial de OpenRouter
+        const orModel = modelStr.includes('/') ? modelStr : "google/gemini-2.0-flash-exp:free";
         return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
     }
 }
 
 const getAIService = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY');
+  // Clave de respaldo hardcoded para asegurar funcionamiento en GitHub Pages
+  const fallbackKey = "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";
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('BOTANIC_API_KEY') || fallbackKey;
   
   if (import.meta.env.DEV) {
-    console.log("BotanicAI: Servicio de IA inicializado en modo Desarrollo.");
+    console.log("BotanicAI v4.0: Servicio de IA en modo DEV.");
   } else {
-    console.log("BotanicAI: Verificando configuración de IA...", apiKey ? "Clave detectada ✅" : "Clave ausente ❌");
+    // Diagnóstico silencioso
+    if (!apiKey) console.error("Falta API Key");
   }
 
   if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
@@ -995,7 +1012,7 @@ function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unre
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2 hidden sm:flex">
               <Logo className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI</h1>
+            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v5.0 PRO</span></h1>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -1084,7 +1101,7 @@ function LoginScreen() {
           <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl border-4 border-primary/20 text-primary p-5 group">
             <Logo className="w-full h-full group-hover:scale-110 transition-transform duration-500" />
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight text-primary">BotanicAI</h1>
+          <h1 className="text-4xl font-extrabold tracking-tight text-primary">BotanicAI <span className="text-sm font-medium bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v5.0 PRO</span></h1>
           <h2 className="text-3xl font-bold leading-tight px-4">Cultiva la inteligencia de tu jardín.</h2>
           <p className="text-on-surface-variant text-lg px-6">Una conexión etérea entre la tecnología y la naturaleza.</p>
         </div>
@@ -1162,7 +1179,7 @@ function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChat
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2">
                 <Logo className="w-full h-full" />
               </div>
-              <h2 className="text-2xl font-extrabold text-primary">BotanicAI</h2>
+              <h2 className="text-2xl font-extrabold text-primary">BotanicAI <span className="text-sm font-medium opacity-40">v3.8</span></h2>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-surface-container rounded-full">
               <X className="w-6 h-6" />
@@ -1774,17 +1791,41 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
   const [isFlashOn, setIsFlashOn] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [touchDist, setTouchDist] = useState(0);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const requestRef = useRef<number>();
 
   useEffect(() => {
     let active = true;
     const init = async () => {
       try {
         const s = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } 
+          video: { 
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 3840 },
+            height: { ideal: 2160 },
+            frameRate: { ideal: 30 }
+          } 
         });
         if (active) {
           setStream(s);
-          if (videoRef.current) videoRef.current.srcObject = s;
+          if (videoRef.current) {
+            videoRef.current.srcObject = s;
+            // Forzar alta calidad después de un breve delay
+            setTimeout(async () => {
+              const track = s.getVideoTracks()[0];
+              try {
+                await track.applyConstraints({
+                  width: { ideal: 3840 },
+                  height: { ideal: 2160 },
+                  //@ts-ignore
+                  focusMode: 'continuous',
+                  //@ts-ignore
+                  whiteBalanceMode: 'continuous'
+                });
+              } catch (e) { console.log("HD Constraints failed, using best possible"); }
+            }, 1000);
+          }
         }
       } catch (err) {
         console.error("Camera access denied:", err);
@@ -1803,11 +1844,45 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
     };
   }, []);
 
+  const updateMagnifier = () => {
+    if (zoom > 1 && videoRef.current && canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        
+        // Dimensiones del recorte (centro del video)
+        const sourceWidth = video.videoWidth / zoom;
+        const sourceHeight = video.videoHeight / zoom;
+        const sourceX = (video.videoWidth - sourceWidth) / 2;
+        const sourceY = (video.videoHeight - sourceHeight) / 2;
+
+        ctx.drawImage(
+          video,
+          sourceX, sourceY, sourceWidth, sourceHeight, // Origen
+          0, 0, canvas.width, canvas.height // Destino
+        );
+      }
+    }
+    requestRef.current = requestAnimationFrame(updateMagnifier);
+  };
+
+  useEffect(() => {
+    requestRef.current = requestAnimationFrame(updateMagnifier);
+    return () => {
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+    };
+  }, [zoom]);
+
   const startCamera = async () => {
     if (stream) return;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
+        video: { 
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 }
+        } 
       });
       setStream(s);
       if (videoRef.current) videoRef.current.srcObject = s;
@@ -1818,6 +1893,34 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
 
   const stopCamera = () => {
     stream?.getTracks().forEach(track => track.stop());
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      if (e.cancelable) e.preventDefault();
+      e.stopPropagation();
+      setTouchDist(Math.hypot(
+        e.touches[0].pageX - e.touches[1].pageX,
+        e.touches[0].pageY - e.touches[1].pageY
+      ));
+    }
+  };
+  
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchDist > 0) {
+      if (e.cancelable) e.preventDefault();
+      e.stopPropagation();
+      const dist = Math.hypot(
+        e.touches[0].pageX - e.touches[1].pageX,
+        e.touches[0].pageY - e.touches[1].pageY
+      );
+      const delta = dist - touchDist;
+      if (Math.abs(delta) > 3) {
+        const factor = delta > 0 ? 0.1 : -0.1;
+        setZoom(prev => Math.max(1, Math.min(6, prev + factor)));
+        setTouchDist(dist);
+      }
+    }
   };
 
   const toggleFlash = async () => {
@@ -1944,9 +2047,9 @@ Responde estrictamente en JSON con este formato:
       });
       
       onScanComplete();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Analysis failed:", err);
-      alert("Error al analizar la imagen. Por favor, inténtalo de nuevo.");
+      alert(`Error de Análisis: ${err.message || "Error desconocido"}`);
     } finally {
       setIsAnalyzing(false);
       setCapturedImage(null);
@@ -1954,7 +2057,11 @@ Responde estrictamente en JSON con este formato:
   };
 
   return (
-    <div className="relative h-[calc(100vh-200px)] rounded-3xl overflow-hidden antigravity-shadow bg-black">
+    <div 
+      className="relative h-[calc(100vh-200px)] rounded-3xl overflow-hidden antigravity-shadow bg-black touch-none"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+    >
       {capturedImage ? (
         <div className="relative w-full h-full">
           <img src={capturedImage} className="w-full h-full object-cover" alt="Captured" />
@@ -1966,19 +2073,43 @@ Responde estrictamente en JSON con este formato:
             >
               <Spa className="w-16 h-16 text-primary" />
             </motion.div>
-            <h3 className="text-2xl font-bold mb-2">Analizando Planta...</h3>
+            <h2 className="text-3xl font-black mb-2 text-primary">BOTANICAI v3.8</h2>
+            <h3 className="text-2xl font-bold mb-2">Analizando ahora mismo...</h3>
             <p className="text-white/70 text-sm max-w-xs">BotanicAI está consultando su base de datos científica para darte el mejor diagnóstico.</p>
           </div>
         </div>
       ) : (
         <>
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            className="w-full h-full object-cover"
-            style={{ transform: `scale(${zoom})` }}
-          />
+          <div className="relative w-full h-full overflow-hidden">
+            <video 
+              ref={videoRef} 
+              autoPlay 
+              playsInline 
+              className="w-full h-full object-cover"
+            />
+            
+            {/* Magnifying Glass Window (Canvas Based - High Res) */}
+            {zoom > 1 && (
+              <motion.div 
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="absolute inset-0 pointer-events-none flex items-center justify-center z-20"
+              >
+                <div className="w-80 h-80 rounded-full border-4 border-white shadow-[0_0_60px_rgba(0,0,0,0.7)] overflow-hidden bg-black ring-[100vw] ring-black/50">
+                  <canvas 
+                    ref={canvasRef}
+                    width={1024}
+                    height={1024}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 shadow-[inset_0_0_50px_rgba(0,0,0,0.5)] rounded-full pointer-events-none" />
+                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-[12px] font-black text-white px-4 py-1.5 rounded-full uppercase tracking-widest shadow-2xl">
+                    ZOOM {zoom.toFixed(1)}x
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </div>
           
           {/* Top Controls - Less Intrusive */}
           <div className="absolute top-6 right-6 z-10">
@@ -2034,18 +2165,18 @@ Responde estrictamente en JSON con este formato:
           onChange={handleFileUpload}
         />
 
-        {/* Prominent Capture Button */}
+        {/* Minimalist Shutter Button */}
         <button 
           onClick={handleCapture}
           disabled={isAnalyzing}
           className="relative group disabled:opacity-50"
         >
-          <div className="absolute inset-0 -m-3 rounded-full border-2 border-white/30 scale-100 group-active:scale-95 transition-transform" />
-          <div className="w-24 h-24 rounded-full border-4 border-white flex items-center justify-center p-1">
-            <div className="w-full h-full rounded-full bg-white group-active:scale-90 transition-transform flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+          <div className="absolute inset-0 -m-2 rounded-full border-2 border-primary/20 scale-100 group-active:scale-95 transition-all duration-300" />
+          <div className="w-16 h-16 rounded-full border-[3px] border-white flex items-center justify-center p-1.5 shadow-xl">
+            <div className="w-full h-full rounded-full bg-white group-active:scale-95 transition-transform flex items-center justify-center overflow-hidden">
               {isAnalyzing && (
                 <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}>
-                  <Spa className="text-primary w-10 h-10" />
+                  <Spa className="text-primary w-6 h-6" />
                 </motion.div>
               )}
             </div>
@@ -4723,3 +4854,4 @@ function ProBenefitsContent({ isPro }: { isPro: boolean }) {
   );
 }
 
+// BUILD_ID: 20260413204659

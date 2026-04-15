@@ -1,14 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BotanicAI</title>
-    <script type="module" crossorigin src="./assets/index-Bd67iJI8.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-Brfld9dZ.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>BotanicAI v6.0 - Force Refresh</title>
+    <script>
+      // Forzar limpieza de cache y service workers viejos
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+          }
+        });
+      }
+      console.log('BotanicAI: Cache Clear Triggered');
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
