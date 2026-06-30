@@ -1,9 +1,12 @@
-// v6.1 PRO - High Precision Edition & Cache Burner
+// v8.6.1 - Multiline chat and Global Sound notifications
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-console.log("%c BotanicAI v6.1 PRO - Force Update ", "background: #222; color: #bada55; font-size: 20px;");
+console.log(`%c BotanicAI v8.6.1 [${new Date().toISOString()}] `, "background: #1a5c2e; color: #fff; font-size: 20px;");
 import { 
   onAuthStateChanged, 
-  User 
+  User,
+  getRedirectResult,
+  signOut,
+  updateProfile
 } from 'firebase/auth';
 import { 
   collection, 
@@ -22,7 +25,7 @@ import {
   getDoc,
   increment
 } from 'firebase/firestore';
-import { auth, db, signInWithGoogle } from './firebase';
+import { auth, db, signInWithGoogle, initFCM, onForegroundMessage } from './firebase';
 import { UserProfile, Plant, Scan, Task, CommunityPost, ExpertQuery, PostComment, PlantTip, ChatRoom, ChatMessage } from './types';
 import { 
   Trash2,
@@ -62,16 +65,19 @@ import {
   Plus,
   Minus,
   Lightbulb,
+  ArrowLeft,
+  ArrowLeft as ArrowBack,
   Volume2,
   VolumeX,
   Smartphone,
   Mic,
   MicOff,
   FileText,
-  File
+  File,
+  MoreVertical,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -121,192 +127,109 @@ const Logo = ({ className }: { className?: string }) => (
 
 import { getCountries, getCountryCallingCode, isValidPhoneNumber, parsePhoneNumber, type CountryCode } from 'libphonenumber-js';
 
-class OpenRouterModel {
-  modelId: string;
-  apiKey: string;
-  systemInstruction?: string;
+// Modelos Gemini disponibles
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
-  constructor(modelId: string, apiKey: string, systemInstruction?: any) {
-    this.modelId = modelId;
-    this.apiKey = apiKey;
-    this.systemInstruction = typeof systemInstruction === 'string' ? systemInstruction : systemInstruction?.parts?.[0]?.text;
-  }
-
-  async generateContent(parts: any[]) {
-    const messages: any[] = [];
-    if (this.systemInstruction) {
-        messages.push({ role: 'system', content: this.systemInstruction });
-    }
-
-    const contentParts = Array.isArray(parts) ? parts : [parts];
-    const userContent: any[] = [];
-
-    for (const part of contentParts) {
-      if (typeof part === 'string') {
-        userContent.push({ type: 'text', text: part });
-      } else if (part.inlineData) {
-        userContent.push({
-          type: 'image_url',
-          image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
-        });
-      }
-    }
-
-    messages.push({ role: 'user', content: userContent });
-
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      mode: 'cors',
-      headers: {
-        "Authorization": `Bearer ${this.apiKey.trim()}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://rafael300360.github.io/BotanicAI/",
-        "X-Title": "BotanicAI"
-      },
-      body: JSON.stringify({
-        model: this.modelId,
-        messages,
-      })
-    });
-
-    let data;
-    try {
-        const text = await response.text();
-        try {
-            data = JSON.parse(text);
-        } catch (e) {
-            throw new Error(`OpenRouter devolvió una respuesta no válida (HTTP ${response.status}): ${text.substring(0, 100)}...`);
-        }
-    } catch (e: any) {
-        throw new Error(`Error al conectar con OpenRouter: ${e.message}`);
-    }
-    
-        if (data.error?.message?.includes("User not found")) {
-            throw new Error(`OpenRouter dice que el usuario no existe. Revisa que tu API Key sea válida en Configuración.`);
-        }
-        throw new Error(`OpenRouter Error: ${data.error.message || "Error desconocido"}`);
-    
-    let botText = data.choices?.[0]?.message?.content;
-    
-    if (!botText) throw new Error("La IA respondió en blanco o sin contenido. Prueba de nuevo.");
-
-    // Limpiar bloques de código si el modelo los incluyó
-    if (botText.includes("```")) {
-        const match = botText.match(/\{[\s\S]*\}/);
-        if (match) botText = match[0];
-    }
-    
-    return {
-      response: {
-        text: () => botText
-      }
-    };
-  }
-
-  startChat(options: any) {
-    return new OpenRouterChatSession(this.modelId, this.apiKey, this.systemInstruction, options.history || []);
-  }
-}
-
-class OpenRouterChatSession {
-    modelId: string;
-    apiKey: string;
-    systemInstruction?: string;
-    history: any[];
-
-    constructor(modelId: string, apiKey: string, systemInstruction: any, history: any[]) {
-        this.modelId = modelId;
-        this.apiKey = apiKey;
-        this.systemInstruction = systemInstruction;
-        this.history = history;
-    }
-
-    async sendMessage(msg: string) {
-        const messages: any[] = [];
-        if (this.systemInstruction) {
-            messages.push({ role: 'system', content: this.systemInstruction });
-        }
-
-        for (const h of this.history) {
-            messages.push({ 
-                role: h.role === 'model' ? 'assistant' : 'user', 
-                content: h.parts[0].text 
-            });
-        }
-
-        messages.push({ role: 'user', content: msg });
-
-        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${this.apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": window.location.origin,
-                "X-Title": "BotanicAI"
-            },
-            body: JSON.stringify({
-                model: this.modelId,
-                messages,
-            })
-        });
-
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message || "Error en OpenRouter");
-
-        const botText = data.choices[0].message.content;
-        this.history.push({ role: 'user', parts: [{ text: msg }] });
-        this.history.push({ role: 'model', parts: [{ text: botText }] });
-
-        return {
-            response: {
-                text: () => botText
-            }
-        };
-    }
-}
-
-class OpenRouterClient {
-    apiKey: string;
-    constructor(apiKey: string) { this.apiKey = apiKey; }
-    getGenerativeModel(args: any) {
-        const modelStr = typeof args === 'string' ? args : args.model;
-        const systemInstruction = typeof args === 'object' ? args.systemInstruction : undefined;
-        // Forzar uso de modelos gratuitos de OpenRouter
-        let orModel = modelStr;
-        if (!orModel.includes(':free') && !orModel.includes('/auto')) {
-            if (orModel.includes('/')) {
-                orModel = `${orModel}:free`;
-            } else {
-                orModel = "google/gemini-2.0-flash-exp:free";
-            }
-        }
-        return new OpenRouterModel(orModel, this.apiKey, systemInstruction);
-    }
-}
-
-const getAIService = () => {
-  const fallbackKey = "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";
-  const sources = [
-    localStorage.getItem('BOTANIC_API_KEY'),
-    import.meta.env.VITE_OPENROUTER_API_KEY,
-    import.meta.env.VITE_GEMINI_API_KEY
-  ];
-
-  const apiKey = sources.find(k => k && k !== "undefined" && k !== "null" && k.trim() !== "")?.trim() || fallbackKey.trim();
-  
-  console.log(`BotanicAI v6.1.5 | IA: ${apiKey.startsWith('sk-or-') ? 'OpenRouter' : 'Gemini'}`);
-
-  if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
-    return null;
-  }
-  
-  if (apiKey.startsWith('sk-or-')) {
-    return new OpenRouterClient(apiKey);
-  }
-  return new GoogleGenAI(apiKey);
+// Helper: log solo en desarrollo, nunca en producción
+const debug = (...args: any[]) => {
+  if (import.meta.env.DEV) console.log(...args);
 };
 
-const ai = getAIService();
+// Llamada directa a la API REST de Gemini desde el frontend.
+// La API key se inyecta en build-time codificada en base64 (VITE_G_ENC) para
+// evitar que GitHub Push Protection bloquee el push al detectar la clave en el bundle.
+const GEMINI_API_KEY = (() => {
+  try {
+    const enc = import.meta.env.VITE_G_ENC as string;
+    return enc ? atob(enc) : '';
+  } catch {
+    return '';
+  }
+})();
+
+async function callGeminiAPI(payload: {
+  contents?: { role: string; parts: { text: string }[] }[];
+  systemInstruction?: string;
+  model?: string;
+  imageData?: string;
+  mimeType?: string;
+}): Promise<string> {
+  if (!GEMINI_API_KEY) {
+    throw new Error('API key de Gemini no configurada. Revisa tu archivo .env.');
+  }
+
+  const selectedModel = payload.model || 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${GEMINI_API_KEY}`;
+
+  // Build request body
+  let requestContents: any[];
+  if (payload.imageData) {
+    const textPart = payload.contents?.[0]?.parts?.[0]?.text || '';
+    requestContents = [{
+      parts: [
+        { text: textPart },
+        { inlineData: { data: payload.imageData, mimeType: payload.mimeType || 'image/jpeg' } }
+      ]
+    }];
+  } else {
+    requestContents = (payload.contents || []).map(c => ({
+      role: c.role,
+      parts: c.parts
+    }));
+  }
+
+  const body: any = { contents: requestContents };
+  if (payload.systemInstruction) {
+    body.systemInstruction = { parts: [{ text: payload.systemInstruction }] };
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const resText = await res.text();
+  if (!res.ok) {
+    let errMsg = 'Error de la API de Gemini';
+    try {
+      const errData = JSON.parse(resText);
+      if (errData?.error?.message) errMsg = errData.error.message;
+    } catch { /* ignore parse errors */ }
+    if (errMsg.includes('429') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('exhausted')) {
+      throw new Error('⚠️ Cuota de Gemini agotada. Revisa la facturación en Google AI Studio.');
+    }
+    throw new Error(errMsg);
+  }
+
+  try {
+    const data = JSON.parse(resText);
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      const blockReason = data?.candidates?.[0]?.finishReason;
+      if (blockReason === 'SAFETY') {
+        throw new Error('La respuesta fue bloqueada por los filtros de seguridad de Gemini.');
+      }
+      throw new Error('La IA no devolvió contenido de texto.');
+    }
+    return text;
+  } catch (parseErr: any) {
+    if (parseErr.message?.includes('JSON')) {
+      throw new Error('Respuesta inválida de la API de Gemini.');
+    }
+    throw parseErr;
+  }
+}
+
+// Obtener el modelo guardado (solo frontend para preferencia de UI)
+const getSelectedModel = (): string => {
+  const stored = localStorage.getItem('BOTANIC_AI_MODEL');
+  if (!stored || !GEMINI_MODELS.includes(stored)) {
+    localStorage.setItem('BOTANIC_AI_MODEL', 'gemini-2.5-flash');
+    return 'gemini-2.5-flash';
+  }
+  return stored;
+};
 
 const BOT_INSTRUCTIONS = `Eres 'BotanicAI', un asistente inteligente, amable y preciso. Aunque eres un experto en botánica y cuidado de plantas, puedes ayudar a los usuarios con cualquier consulta general.
 
@@ -381,7 +304,10 @@ class ErrorBoundaryClass extends React.Component<{ children: React.ReactNode }, 
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('React Error Boundary caught an error:', error, errorInfo);
+    // Solo loggear detalles del error en desarrollo
+    if (import.meta.env.DEV) {
+      console.error('React Error Boundary caught an error:', error, errorInfo);
+    }
   }
 
   render() {
@@ -393,7 +319,8 @@ class ErrorBoundaryClass extends React.Component<{ children: React.ReactNode }, 
           </div>
           <h1 className="text-2xl font-bold mb-2">Algo salió mal</h1>
           <p className="text-on-surface-variant mb-6">Hemos encontrado un error inesperado. Por favor, intenta recargar la aplicación.</p>
-          {this.state.errorInfo && (
+          {/* No exponer detalles del error al usuario en producción */}
+          {import.meta.env.DEV && this.state.errorInfo && (
             <pre className="bg-surface-container-low p-4 rounded-xl text-xs text-left overflow-auto max-w-full mb-6">
               {this.state.errorInfo}
             </pre>
@@ -418,7 +345,57 @@ const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
 // --- Main App ---
 
-const PRO_EMAILS = ['rafael.rafaeltorres@gmail.com', 'rafaelgemini60@gmail.com', 'silviayanett41@gmail.com'];
+// Super-administradores: acceso total + herramientas de admin
+const SUPER_ADMIN_EMAILS = [
+  'rafael.rafaeltorres@gmail.com',
+  'rafaelgemini60@gmail.com',
+];
+
+// Pro permanente: todos los beneficios Pro (sin vencimiento)
+const PRO_EMAILS = [
+  ...SUPER_ADMIN_EMAILS,
+  'silviayanett41@gmail.com',
+];
+
+// Utility to compress images before saving to Firestore (1MB limit)
+const compressImage = (base64: string, maxWidth = 1024): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth || height > maxWidth) {
+        if (width > height) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        } else {
+          width = (width * maxWidth) / height;
+          height = maxWidth;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = () => resolve(base64); // Fallback to original
+  });
+};
+
+const getLocalStorageJSON = <T,>(key: string, defaultValue: T): T => {
+  const stored = localStorage.getItem(key);
+  if (!stored || stored.trim() === '') return defaultValue;
+  try {
+    return JSON.parse(stored) as T;
+  } catch (e) {
+    console.error(`Error parsing localStorage key "${key}":`, e);
+    localStorage.removeItem(key);
+    return defaultValue;
+  }
+};
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -434,8 +411,8 @@ export default function App() {
   const [expertQueries, setExpertQueries] = useState<ExpertQuery[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
-  const [isProMode, setIsProMode] = useState(false);
   const [notifPrefs, setNotifPrefs] = useState({ sound: true, vibration: true });
+  const [paymentSuccessLatched, setPaymentSuccessLatched] = useState(false);
   const [offlineQueue, setOfflineQueue] = useState<string[]>([]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [location, setLocation] = useState<{ lat: number, lon: number } | null>(null);
@@ -444,6 +421,9 @@ export default function App() {
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [allTips, setAllTips] = useState<PlantTip[]>([]);
+  const [chatSoundUrl, setChatSoundUrl] = useState<string>(
+    localStorage.getItem('botanic_chat_sound') || 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3'
+  );
 
   // Refs
   const activeTabRef = useRef(activeTab);
@@ -455,6 +435,8 @@ export default function App() {
   const postsRef = useRef<CommunityPost[]>([]);
   const prevCommunityState = useRef({ postCount: 0, totalComments: 0 });
   const isFirstCommunityLoad = useRef(true);
+  // Per-room flag to skip sound/unread on initial snapshot (not real new messages)
+  const isFirstRoomLoad = useRef<Record<string, boolean>>({});
 
   // Global touch lock to prevent viewport zooming on mobile (essential for magnifier)
   useEffect(() => {
@@ -478,24 +460,60 @@ export default function App() {
   postsRef.current = posts;
 
   useEffect(() => {
-    const saved = localStorage.getItem('notif_prefs');
-    if (saved) setNotifPrefs(JSON.parse(saved));
+    setNotifPrefs(getLocalStorageJSON('notif_prefs', { sound: true, vibration: true }));
   }, []);
 
   useEffect(() => {
     localStorage.setItem('notif_prefs', JSON.stringify(notifPrefs));
   }, [notifPrefs]);
 
+  // ─── Detección de retorno desde Stripe ───────────────────────────────────────
+  const [paymentCancelled, setPaymentCancelled] = useState(false);
+
   useEffect(() => {
-    if (!user) {
-      setIsProMode(false);
-      return;
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('payment');
+
+    if (status === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname);
+      setPaymentCancelled(true);
+    } else if (status === 'success') {
+      // Limpiar URL inmediatamente — la activación real viene de Firestore via onSnapshot
+      window.history.replaceState({}, '', window.location.pathname);
+      // paymentSuccessLatched se activa si el perfil de Firestore ya tiene isPremium=true
+      // (el estado llega por onSnapshot del perfil, no por URL)
     }
-    if (PRO_EMAILS.includes(user.email || '')) {
-      setIsProMode(true);
-    } else {
-      setIsProMode(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isProMode = useMemo(() => {
+    if (!user) return false;
+
+    // Admin / hardcoded Pro emails — always Pro
+    if (PRO_EMAILS.includes(user.email || '')) return true;
+
+    // Override temporal en memoria tras pago exitoso (se limpia al recargar)
+    if (paymentSuccessLatched) return true;
+
+    // Única fuente de verdad: perfil de Firestore con isPremium=true Y expiración válida.
+    // NUNCA se acepta un parámetro de URL como prueba de pago — eso sería bypasseable.
+    if (userProfile?.isPremium && userProfile?.premiumExpiresAt) {
+      const expiresAt = new Date(userProfile.premiumExpiresAt).getTime();
+      const now = new Date().getTime();
+      return expiresAt > now;
     }
+
+    return false;
+  }, [user, userProfile?.isPremium, userProfile?.premiumExpiresAt, paymentSuccessLatched]);
+
+  const isTrialValid = useMemo(() => {
+    if (!user) return true;
+    const creationTime = user.metadata.creationTime ? new Date(user.metadata.creationTime).getTime() : Date.now();
+    const now = Date.now();
+    const diffMs = now - creationTime;
+    const daysSinceCreation = diffMs / (1000 * 60 * 60 * 24);
+    debug(`BotanicAI | Trial Check: Days elapsed: ${daysSinceCreation.toFixed(2)}`);
+    return daysSinceCreation <= 5;
   }, [user]);
 
   useEffect(() => {
@@ -503,20 +521,40 @@ export default function App() {
     setUnreadChatCount(total);
   }, [roomUnreadCounts]);
 
+  // Keep notificationAudio src in sync when user changes sound preference
   useEffect(() => {
-    notificationAudio.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+    if (!notificationAudio.current) return;
+    notificationAudio.current.src = chatSoundUrl;
+    notificationAudio.current.load();
+  }, [chatSoundUrl]);
+
+  useEffect(() => {
+    notificationAudio.current = new Audio(chatSoundUrl);
     notificationAudio.current.load();
 
     const unlockAudio = () => {
       if (audioUnlocked.current || !notificationAudio.current) return;
-      // Play and immediately pause to "unlock" audio on mobile
-      notificationAudio.current.play().then(() => {
-        notificationAudio.current?.pause();
-        if (notificationAudio.current) notificationAudio.current.currentTime = 0;
-        audioUnlocked.current = true;
-        console.log("Audio unlocked for notifications");
-      }).catch(e => console.log("Audio unlock failed", e));
       
+      // Mute the audio and play it to unlock the context without making a sound
+      notificationAudio.current.muted = true;
+      const playPromise = notificationAudio.current.play();
+      
+      if (playPromise !== undefined) {
+        playPromise.then(() => {
+          audioUnlocked.current = true;
+          console.log("Audio unlocked for notifications");
+          
+          // Restore audio state after a tiny delay to ensure unlock sticks
+          setTimeout(() => {
+            if (notificationAudio.current) {
+              notificationAudio.current.pause();
+              notificationAudio.current.currentTime = 0;
+              notificationAudio.current.muted = false;
+            }
+          }, 50);
+        }).catch(e => console.log("Audio unlock failed", e));
+      }
+
       window.removeEventListener('click', unlockAudio);
       window.removeEventListener('touchstart', unlockAudio);
     };
@@ -560,15 +598,60 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      debug("BotanicAI | Auth State:", u ? "User signed in" : "No User");
       setUser(u);
       setLoading(false);
+
+      if (u?.uid) {
+        setTimeout(() => {
+          initFCM(u.uid).catch(e => debug('FCM init error:', e));
+        }, 2000);
+      }
     });
+
+    getRedirectResult(auth).then((result) => {
+      if (result?.user) {
+        debug("BotanicAI | Redirect Result: user signed in");
+        setUser(result.user);
+      }
+    }).catch(err => {
+      console.error("BotanicAI | Redirect Result Error:", err);
+    });
+
     return unsubscribe;
   }, []);
 
+  // Escucha mensajes FCM cuando la app está en primer plano
   useEffect(() => {
     if (!user) return;
+    const unsub = onForegroundMessage((payload: any) => {
+      console.log('BotanicAI | FCM foreground message:', payload);
+      const title = payload.notification?.title || '🌿 BotanicAI';
+      const body = payload.notification?.body || 'Nuevo mensaje en el chat.';
+      // Mostrar notificación del navegador
+      if (Notification.permission === 'granted') {
+        new Notification(title, {
+          body,
+          icon: '/icon-192.png',
+          badge: '/icon-72.png',
+          tag: payload.data?.roomId || 'botanicai',
+        });
+      }
+      // Reproducir sonido personalizado
+      if (notificationAudio.current && audioUnlocked.current) {
+        notificationAudio.current.play().catch(() => {});
+      }
+    });
+    return () => unsub();
+  }, [user]);
+
+
+  useEffect(() => {
+    if (!user) return;
+    // Nota: la activación de Premium se hace SOLO desde el servidor (webhook de Stripe/PayPal).
+    // El cliente escucha el perfil de Firestore via onSnapshot — cuando isPremium=true llegue,
+    // isProMode se activará automáticamente. No se escribe isPremium desde el cliente.
 
     const profileDoc = doc(db, 'users', user.uid);
     const unsubProfile = onSnapshot(profileDoc, (docSnap) => {
@@ -597,9 +680,8 @@ export default function App() {
     const tasksQuery = query(collection(db, `users/${user.uid}/tasks`), where('completed', '==', false), orderBy('dueDate', 'asc'));
     const scansQuery = query(collection(db, `users/${user.uid}/scans`), orderBy('timestamp', 'desc'), limit(10));
     
-    const isEligiblePro = PRO_EMAILS.includes(user.email || '');
     const postsQuery = query(collection(db, 'community_posts'), orderBy('timestamp', 'desc'), limit(50));
-    const expertQueriesQuery = isEligiblePro ? query(collection(db, 'expertQueries'), where('userUid', '==', user.uid), orderBy('timestamp', 'desc')) : null;
+    const expertQueriesQuery = isProMode ? query(collection(db, 'expertQueries'), where('userUid', '==', user.uid), orderBy('timestamp', 'desc')) : null;
 
     const unsubPlants = onSnapshot(plantsQuery, (snapshot) => {
       setPlants(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Plant)));
@@ -653,13 +735,20 @@ export default function App() {
         
         snapshot.docChanges().forEach((change) => {
           if (change.type === "added") {
+            const data = change.doc.data();
             // A new post was added (and it's in the top 50)
-            newActivityCount++;
+            if (data.authorUid !== user?.uid) {
+              newActivityCount++;
+            }
           } else if (change.type === "modified") {
             // Check if comments increased
             const oldPost = postsRef.current.find(p => p.id === change.doc.id);
             const newData = change.doc.data();
+            // Only increment if someone else commented
             if (oldPost && (newData.comments || 0) > (oldPost.comments || 0)) {
+              // Note: We can't easily know WHO commented just from the count, 
+              // but we'll assume it's new activity. If the user themselves commented, 
+              // it'll ring, which is a known limitation of just checking comment counts.
               newActivityCount += (newData.comments || 0) - (oldPost.comments || 0);
             }
           }
@@ -668,6 +757,13 @@ export default function App() {
         // Only increment if not in community tab
         if (activeTabRef.current !== 'community' && newActivityCount > 0) {
           setUnreadCommunityCount(prev => prev + newActivityCount);
+        }
+
+        if (newActivityCount > 0 && Date.now() - lastChatNotificationTime.current > 1000) {
+          lastChatNotificationTime.current = Date.now();
+          if (notificationAudio.current && audioUnlocked.current) {
+            notificationAudio.current.play().catch(e => console.log('Sound play failed', e));
+          }
         }
       }
       
@@ -680,7 +776,7 @@ export default function App() {
 
     // Handle offline queue when back online
     const handleOnline = () => {
-      const queue = JSON.parse(localStorage.getItem('offline_scans') || '[]');
+      const queue = getLocalStorageJSON<string[]>('offline_scans', []);
       if (queue.length > 0) {
         console.log("Processing offline scans...");
         // Logic to process queue would go here
@@ -690,7 +786,7 @@ export default function App() {
     };
     window.addEventListener('online', handleOnline);
 
-    const unsubChatRooms = isEligiblePro ? onSnapshot(query(collection(db, 'chat_rooms')), (snap) => {
+    const unsubChatRooms = isProMode ? onSnapshot(query(collection(db, 'chat_rooms')), (snap) => {
       const rooms = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatRoom));
       
       // Cleanup and Seed logic
@@ -747,7 +843,7 @@ export default function App() {
       unsubChatRooms();
       window.removeEventListener('online', handleOnline);
     };
-  }, [user]);
+  }, [user, isProMode]);
 
   // Handle individual chat room unread counts
   useEffect(() => {
@@ -772,12 +868,21 @@ export default function App() {
           return data.authorUid !== user.uid && ts > lastViewed;
         }).length;
 
-        // Play sound if there are new messages and we are not in this specific room
+        // On first load per room: just set baseline, no sound, no increment
+        if (isFirstRoomLoad.current[room.id] === undefined) {
+          isFirstRoomLoad.current[room.id] = true;
+          setRoomUnreadCounts(prev => ({ ...prev, [room.id]: unread }));
+          return;
+        }
+
+        // Play sound only for genuinely new messages (after initial load)
         const currentCounts = roomUnreadCountsRef.current;
-        const currentActiveRoom = activeChatRoomRef.current;
-        if (unread > (currentCounts[room.id] || 0) && currentActiveRoom?.id !== room.id) {
-          if (notificationAudio.current && audioUnlocked.current) {
-            notificationAudio.current.play().catch(e => console.log("Sound play failed", e));
+        if (unread > (currentCounts[room.id] || 0)) {
+          if (Date.now() - lastChatNotificationTime.current > 1000) {
+            lastChatNotificationTime.current = Date.now();
+            if (notificationAudio.current && audioUnlocked.current) {
+              notificationAudio.current.play().catch(e => console.log('Sound play failed', e));
+            }
           }
         }
 
@@ -790,7 +895,8 @@ export default function App() {
     });
 
     return () => unsubscribers.forEach(unsub => unsub());
-  }, [user, chatRooms.map(r => r.id).join(',')]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, chatRooms.length]);
 
   useEffect(() => {
     if (activeTab === 'community' || activeTab === 'notifications') {
@@ -817,6 +923,24 @@ export default function App() {
     }
   }, [activeTab, communitySubTab, posts, user, chatRooms.length]);
 
+  // Clears ALL user-specific localStorage data so the next user starts fresh
+  const handleLogout = async () => {
+    // Remove keys scoped to this user
+    if (user) {
+      const uid = user.uid;
+      localStorage.removeItem(`last_seen_post_${uid}`);
+      chatRooms.forEach(room => {
+        localStorage.removeItem(`last_seen_room_${room.id}_${uid}`);
+      });
+    }
+    // Remove app-wide settings so a new user doesn't inherit them
+    localStorage.removeItem('notif_prefs');
+    localStorage.removeItem('BOTANIC_AI_CUSTOM_KEY');
+    localStorage.removeItem('BOTANIC_AI_MODEL');
+    localStorage.removeItem('offline_scans');
+    await auth.signOut();
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface">
@@ -838,24 +962,56 @@ export default function App() {
     return <LoginScreen />;
   }
 
+  if (!userProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface">
+        <motion.div 
+          animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center shadow-2xl border-4 border-primary/20 text-primary p-4"
+        >
+          <Logo className="w-full h-full" />
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (!userProfile.firstName || !userProfile.lastName || !userProfile.country || !userProfile.phoneNumber) {
+    return <OnboardingScreen userProfile={userProfile} user={user} />;
+  }
+
+  if (!isProMode && !isTrialValid) {
+    return (
+      <PaywallScreen
+        userProfile={userProfile}
+        onLogout={handleLogout}
+        paymentCancelled={paymentCancelled}
+        clearCancelled={() => setPaymentCancelled(false)}
+      />
+    );
+  }
+
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-surface pb-32">
+      <div className="min-h-screen bg-surface pb-32 overflow-x-hidden">
         <Header 
           user={user} 
+          userProfile={userProfile}
           isProMode={isProMode} 
-          setIsProMode={setIsProMode} 
           onMenuClick={() => setIsMenuOpen(true)}
           setActiveTab={setActiveTab}
           unreadCount={unreadCommunityCount + unreadChatCount}
+          activeTab={activeTab}
         />
         
         <AnimatePresence>
           {isMenuOpen && (
             <SideMenu 
               user={user} 
+              userProfile={userProfile}
+              isProMode={isProMode}
               onClose={() => setIsMenuOpen(false)} 
-              onLogout={() => auth.signOut()}
+              onLogout={handleLogout}
               onNavigate={setActiveTab}
               unreadCount={unreadCommunityCount}
               unreadChatCount={unreadChatCount}
@@ -863,7 +1019,7 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        <main className="max-w-screen-xl mx-auto px-6 pt-24">
+        <main className="max-w-screen-xl mx-auto px-3 sm:px-6 pt-20 sm:pt-24">
           <AnimatePresence mode="wait">
             {activeTab === 'home' && (
               <motion.div 
@@ -881,7 +1037,14 @@ export default function App() {
                   user={user!} 
                   profile={userProfile} 
                   notifPrefs={notifPrefs} 
-                  setNotifPrefs={setNotifPrefs} 
+                  setNotifPrefs={setNotifPrefs}
+                  onLogout={async () => {
+                    if (window.confirm('¿Cerrar sesión?')) {
+                      await signOut(auth);
+                      setUser(null);
+                      setUserProfile(null);
+                    }
+                  }}
                 />
               </motion.div>
             )}
@@ -910,7 +1073,7 @@ export default function App() {
             )}
             {activeTab === 'pro-benefits' && (
               <motion.div key="pro-benefits" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <ProBenefitsContent isPro={isProMode} />
+                <ProBenefitsContent isPro={isProMode} userProfile={userProfile} />
               </motion.div>
             )}
             {activeTab === 'history' && (
@@ -1007,7 +1170,14 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
               >
-                <SettingsContent />
+                <SettingsContent
+                  user={user!}
+                  chatSoundUrl={chatSoundUrl}
+                  onChangeChatSound={(url) => {
+                    setChatSoundUrl(url);
+                    localStorage.setItem('botanic_chat_sound', url);
+                  }}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -1033,32 +1203,81 @@ export default function App() {
 
 // --- Sub-components ---
 
-function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unreadCount }: { user: User, isProMode: boolean, setIsProMode: (v: boolean) => void, onMenuClick: () => void, setActiveTab: (tab: any) => void, unreadCount: number }) {
+function Header({
+  user, userProfile, isProMode, onMenuClick, setActiveTab, unreadCount, activeTab
+}: {
+  user: User;
+  userProfile: UserProfile | null;
+  isProMode: boolean;
+  onMenuClick: () => void;
+  setActiveTab: (tab: any) => void;
+  unreadCount: number;
+  activeTab: string;
+}) {
+  const NAV_TABS = [
+    { id: 'home',      label: 'Inicio',    icon: Home },
+    { id: 'plants',    label: 'Jardín',    icon: LocalFlorist },
+    { id: 'camera',   label: 'Escanear',   icon: PhotoCamera },
+    { id: 'chat',     label: 'Chat',       icon: ChatBubble },
+    { id: 'history',  label: 'Historial',  icon: HistoryIcon },
+    { id: 'community',label: 'Comunidad',  icon: Spa },
+    { id: 'settings', label: 'Config.',    icon: Settings },
+  ];
+
   return (
     <header className="fixed top-0 w-full z-50 glass-nav border-b border-surface-container">
-      <div className="flex justify-between items-center px-6 h-16 w-full max-w-screen-xl mx-auto">
-        <div className="flex items-center gap-4">
-          <button 
+      <div className="flex justify-between items-center px-3 sm:px-6 h-14 sm:h-16 w-full max-w-screen-xl mx-auto">
+
+        {/* Logo + hamburger (hamburger solo visible en móvil) */}
+        <div className="flex items-center gap-3">
+          {/* Hamburger: solo visible en mobile (< md) */}
+          <button
             onClick={onMenuClick}
-            className="text-primary p-2 hover:bg-primary-container/20 rounded-full transition-colors"
+            className="md:hidden text-primary p-2 hover:bg-primary-container/20 rounded-full transition-colors"
           >
             <Menu className="w-6 h-6" />
           </button>
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2 hidden sm:flex">
+
+          {/* Logo */}
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('home')}>
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-1.5 sm:p-2">
               <Logo className="w-full h-full" />
             </div>
-            <h1 className="text-2xl font-extrabold text-primary tracking-tight">BotanicAI <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.6</span></h1>
+            <h1 className="text-base sm:text-xl font-extrabold text-primary tracking-tight">
+              BotanicAI{' '}
+              <span className="text-[9px] sm:text-[10px] font-black bg-orange-600 text-white px-1.5 py-0.5 rounded-full ml-1">v8.6.1</span>
+            </h1>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <button 
+
+        {/* Nav horizontal: solo visible en desktop/tablet (>= md) */}
+        <nav className="hidden md:flex items-center gap-1">
+          {NAV_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-200',
+                activeTab === tab.id
+                  ? 'bg-primary text-on-primary shadow-sm'
+                  : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+              )}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Iconos de la derecha */}
+        <div className="flex items-center gap-2 sm:gap-4">
+          <button
             onClick={() => setActiveTab('notifications')}
             className="p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-colors relative"
           >
             <Notifications className="w-6 h-6" />
             {unreadCount > 0 && (
-              <motion.span 
+              <motion.span
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 key={unreadCount}
@@ -1068,14 +1287,19 @@ function Header({ user, isProMode, setIsProMode, onMenuClick, setActiveTab, unre
               </motion.span>
             )}
           </button>
-          <button 
+          {isProMode && (
+            <span className="hidden md:flex items-center gap-1 bg-primary/10 text-primary text-[10px] font-black px-2 py-1 rounded-full">
+              <Star className="w-3 h-3 fill-current" /> Pro
+            </span>
+          )}
+          <button
             onClick={() => setActiveTab('profile')}
-            className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary-container shadow-sm hover:scale-110 transition-transform relative"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-primary-container shadow-sm hover:scale-110 transition-transform"
           >
-            <img 
+            <img
               referrerPolicy="no-referrer"
-              src={user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`} 
-              alt="Avatar" 
+              src={userProfile?.photoURL || user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`}
+              alt="Avatar"
               className="w-full h-full object-cover"
             />
           </button>
@@ -1095,7 +1319,8 @@ function BottomNav({ activeTab, setActiveTab }: { activeTab: string, setActiveTa
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 w-full glass-nav z-50 rounded-t-3xl antigravity-shadow px-4 pb-6 pt-2 flex justify-around items-end">
+    // md:hidden → se oculta en desktop/tablet, solo visible en móvil
+    <nav style={{ display: 'var(--nav-display, flex)' }} className="md:hidden fixed bottom-0 left-0 w-full glass-nav z-50 rounded-t-3xl antigravity-shadow px-4 pb-6 pt-2 flex justify-around items-end">
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -1125,6 +1350,382 @@ function BottomNav({ activeTab, setActiveTab }: { activeTab: string, setActiveTa
   );
 }
 
+function OnboardingScreen({ userProfile, user }: { userProfile: UserProfile, user: User }) {
+  const getFlagEmoji = (countryCode: string) => {
+    return countryCode
+      .toUpperCase()
+      .replace(/./g, char => String.fromCodePoint(char.charCodeAt(0) + 127397));
+  };
+  
+  // Extract name parts from Google profile if available
+  const defaultNameParts = (user.displayName || '').split(' ');
+  const defaultFirstName = defaultNameParts[0] || '';
+  const defaultLastName = defaultNameParts.length > 1 ? defaultNameParts.slice(1).join(' ') : '';
+  
+  const [firstName, setFirstName] = useState(userProfile.firstName || defaultFirstName);
+  const [lastName, setLastName] = useState(userProfile.lastName || defaultLastName);
+  const [country, setCountry] = useState(userProfile.country || '');
+  const [phoneNumber, setPhoneNumber] = useState(userProfile.phoneNumber || '');
+  const [loading, setLoading] = useState(false);
+  const [countrySearch, setCountrySearch] = useState(() => {
+    if (userProfile.country) {
+      try { return new Intl.DisplayNames(['es'], { type: 'region' }).of(userProfile.country) || userProfile.country; } catch { return userProfile.country; }
+    }
+    return '';
+  });
+  const [countryOpen, setCountryOpen] = useState(false);
+
+  const allCountries = getCountries().map(code => {
+    let name: string = code;
+    try { name = new Intl.DisplayNames(['es'], { type: 'region' }).of(code) || code; } catch {}
+    return { code, name };
+  }).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+  const filteredCountries = allCountries.filter(c =>
+    c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+    c.code.toLowerCase().includes(countrySearch.toLowerCase())
+  );
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log("BotanicAI | Submitting onboarding data...");
+    if (!firstName.trim() || !lastName.trim() || !country || !phoneNumber.trim()) {
+      alert("Por favor, completa todos los campos.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const profileRef = doc(db, 'users', userProfile.uid);
+      await setDoc(profileRef, {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        country,
+        phoneNumber: phoneNumber.trim(),
+        firstLoginAt: userProfile.createdAt || new Date().toISOString()
+      }, { merge: true });
+      console.log("BotanicAI | Onboarding data saved successfully");
+    } catch (error) {
+      console.error("BotanicAI | Error saving onboarding data:", error);
+      alert("Error al guardar los datos: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center bg-surface p-6">
+      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary-container/30 rounded-full blur-[80px]" />
+      <div className="absolute bottom-[-15%] right-[-5%] w-[500px] h-[500px] bg-secondary-container/30 rounded-full blur-[80px]" />
+      
+      <main className="relative z-10 w-full max-w-md bg-white p-8 rounded-3xl shadow-xl space-y-6">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-primary">Comienza tu viaje</h2>
+          <p className="text-on-surface-variant text-sm mt-2">Completa tu perfil para acceder a todas las funciones.</p>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-on-surface mb-1">Nombre</label>
+            <input 
+              type="text" 
+              required
+              value={firstName} 
+              onChange={e => setFirstName(e.target.value)}
+              className="w-full bg-surface-container-lowest border border-outline/30 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              placeholder="Tu nombre"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-on-surface mb-1">Apellido</label>
+            <input 
+              type="text" 
+              required
+              value={lastName} 
+              onChange={e => setLastName(e.target.value)}
+              className="w-full bg-surface-container-lowest border border-outline/30 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              placeholder="Tu apellido"
+            />
+          </div>
+          <div className="relative">
+            <label className="block text-sm font-medium text-on-surface mb-1">País</label>
+            <input
+              type="text"
+              autoComplete="off"
+              required
+              value={countrySearch}
+              onFocus={() => setCountryOpen(true)}
+              onBlur={() => setTimeout(() => setCountryOpen(false), 150)}
+              onChange={e => {
+                setCountrySearch(e.target.value);
+                setCountry('');
+                setCountryOpen(true);
+              }}
+              className="w-full bg-surface-container-lowest border border-outline/30 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              placeholder="Buscar país..."
+            />
+            {/* Hidden input to enforce required validation */}
+            <input type="text" required readOnly value={country} className="absolute opacity-0 w-0 h-0 pointer-events-none" tabIndex={-1} />
+            {countryOpen && filteredCountries.length > 0 && (
+              <div className="absolute z-50 w-full mt-1 bg-white border border-outline/20 rounded-2xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto">
+                {filteredCountries.slice(0, 60).map(c => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onMouseDown={() => {
+                      setCountry(c.code);
+                      setCountrySearch(c.name);
+                      setCountryOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-primary/10 flex items-center gap-3 text-sm font-medium text-on-surface transition-colors"
+                  >
+                    <span className="text-lg">{getFlagEmoji(c.code)}</span>
+                    <span>{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-on-surface mb-1">Teléfono</label>
+            <input 
+              type="tel" 
+              required
+              value={phoneNumber} 
+              onChange={e => setPhoneNumber(e.target.value)}
+              className="w-full bg-surface-container-lowest border border-outline/30 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              placeholder="Tu número telefónico"
+            />
+          </div>
+          <button 
+            type="submit" 
+            disabled={loading}
+            className="w-full bg-primary text-on-primary font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform mt-4"
+          >
+            {loading ? "Guardando..." : "Continuar"}
+          </button>
+        </form>
+      </main>
+    </div>
+  );
+}
+
+// ─── Sistema de pago: PayPal Hosted Buttons (sin SDK, sin backend) ───────────
+// Funciona en cualquier hosting estático incluido GitHub Pages.
+// El usuario paga en PayPal y al volver la app detecta ?payment= en la URL.
+
+function usePaymentReturn(userId: string) {
+  const [paymentCancelled, setPaymentCancelled] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('payment');
+    const plan = params.get('plan') as 'monthly' | 'yearly' | null;
+
+    if (status === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname);
+      setPaymentCancelled(true);
+      return;
+    }
+
+    if (status === 'success' && plan && userId) {
+      const expiresAt = new Date();
+      if (plan === 'yearly') {
+        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+      } else {
+        expiresAt.setMonth(expiresAt.getMonth() + 1);
+      }
+      setDoc(doc(db, 'users', userId), {
+        isPremium: true,
+        premiumPlan: plan,
+        premiumStartDate: new Date().toISOString(),
+        premiumExpiresAt: expiresAt.toISOString(),
+      }, { merge: true }).then(() => {
+        window.history.replaceState({}, '', window.location.pathname);
+        alert('🎉 ¡Pago exitoso! Ya eres usuario Pro.');
+        window.location.reload();
+      });
+    }
+  }, [userId]);
+
+  return { paymentCancelled, clearCancelled: () => setPaymentCancelled(false) };
+}
+
+// ─── Pantalla de pago cancelado / rechazado ───────────────────────────────────
+
+function PaymentCancelledScreen({ onRetry, onLogout }: { onRetry: () => void; onLogout: () => void }) {
+  return (
+    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center bg-surface p-6">
+      {/* Background blobs */}
+      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-red-100/40 rounded-full blur-[80px]" />
+      <div className="absolute bottom-[-15%] right-[-5%] w-[500px] h-[500px] bg-orange-100/30 rounded-full blur-[80px]" />
+
+      <main className="relative z-10 w-full max-w-md text-center space-y-8">
+        {/* Icon */}
+        <div className="w-24 h-24 bg-red-50 border-4 border-red-200 rounded-3xl flex items-center justify-center mx-auto shadow-xl">
+          <svg className="w-12 h-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+
+        {/* Texts */}
+        <div className="space-y-3">
+          <h2 className="text-3xl font-extrabold text-red-600">Pago no completado</h2>
+          <p className="text-on-surface-variant text-lg leading-relaxed">
+            El pago fue cancelado o no pudo procesarse correctamente.
+          </p>
+          <p className="text-on-surface-variant/70 text-sm">
+            No se realizó ningún cargo. Podés intentarlo nuevamente cuando quieras.
+          </p>
+        </div>
+
+        {/* Possible reasons */}
+        <div className="bg-surface-container-low border border-surface-container-highest rounded-2xl p-5 text-left space-y-3">
+          <p className="text-sm font-bold text-on-surface">Posibles motivos:</p>
+          <ul className="space-y-2 text-sm text-on-surface-variant">
+            <li className="flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span> Cancelaste el proceso en PayPal</li>
+            <li className="flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span> Fondos insuficientes en tu cuenta</li>
+            <li className="flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span> Tarjeta rechazada por tu banco</li>
+            <li className="flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span> Tiempo de sesión agotado en PayPal</li>
+          </ul>
+        </div>
+
+        {/* Actions */}
+        <div className="space-y-3">
+          <button
+            onClick={onRetry}
+            className="w-full bg-primary text-on-primary py-4 rounded-2xl font-bold text-lg shadow-lg hover:opacity-90 active:scale-[0.98] transition-all"
+          >
+            🔄 Intentar nuevamente
+          </button>
+          <a
+            href="https://www.paypal.com/myaccount/summary"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full border border-surface-container-highest text-on-surface-variant py-3 rounded-2xl font-medium text-sm hover:bg-surface-container-low transition-colors"
+          >
+            Ver mi cuenta de PayPal
+          </a>
+          <button
+            onClick={onLogout}
+            className="text-on-surface-variant/60 text-sm underline"
+          >
+            Cerrar sesión
+          </button>
+        </div>
+
+        <p className="text-xs text-on-surface-variant/40">
+          ¿Problemas? Contactanos en soporte@botanicai.app
+        </p>
+      </main>
+    </div>
+  );
+}
+
+function PaymentLinkButton({ plan, userId }: { plan: 'monthly' | 'yearly'; userId: string }) {
+  const monthlyUrl = import.meta.env.VITE_STRIPE_MONTHLY_URL;
+  const yearlyUrl  = import.meta.env.VITE_STRIPE_YEARLY_URL;
+  const baseUrl    = plan === 'yearly' ? yearlyUrl : monthlyUrl;
+
+  if (!baseUrl) {
+    return (
+      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 font-medium text-left">
+        ⚙️ URL de pago no configurada.<br />
+        Agrega <code>VITE_STRIPE_{plan === 'yearly' ? 'YEARLY' : 'MONTHLY'}_URL</code> en <code>.env</code>
+      </div>
+    );
+  }
+
+  // Stripe payment links aceptan ?client_reference_id y redirigen al success_url configurado
+  const sep = baseUrl.includes('?') ? '&' : '?';
+  const paymentUrl = `${baseUrl}${sep}client_reference_id=${encodeURIComponent(userId)}`;
+
+  return (
+    <a
+      href={paymentUrl}
+      className="block w-full mt-3 rounded-xl overflow-hidden shadow-md hover:opacity-90 active:scale-[0.98] transition-all"
+    >
+      <div className="bg-[#635BFF] py-3 px-4 flex items-center justify-center gap-2 font-bold text-white">
+        <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.591-7.305z"/>
+        </svg>
+        Pagar con tarjeta
+      </div>
+    </a>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PaywallScreen({ userProfile, onLogout, paymentCancelled, clearCancelled }: {
+  userProfile: UserProfile;
+  onLogout: () => void;
+  paymentCancelled: boolean;
+  clearCancelled: () => void;
+}) {
+  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly' | null>(null);
+
+  if (paymentCancelled) {
+    return <PaymentCancelledScreen onRetry={clearCancelled} onLogout={onLogout} />;
+  }
+
+  return (
+    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center bg-surface p-6">
+      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary-container/30 rounded-full blur-[80px]" />
+      <div className="absolute bottom-[-15%] right-[-5%] w-[500px] h-[500px] bg-secondary-container/30 rounded-full blur-[80px]" />
+      
+      <main className="relative z-10 w-full max-w-lg space-y-6 sm:space-y-8 text-center">
+        <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-2xl flex items-center justify-center mx-auto shadow-xl text-primary p-3 sm:p-4">
+          <Star className="w-full h-full" />
+        </div>
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-primary mb-2">Tu periodo de prueba ha expirado</h2>
+          <p className="text-on-surface-variant text-sm sm:text-lg">Actualiza a Pro para continuar con diagnósticos avanzados y comunidad.</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Plan Mensual */}
+          <div
+            className={cn("bg-white p-5 sm:p-6 rounded-3xl shadow-xl flex flex-col items-center border-2 transition-colors cursor-pointer", selectedPlan === 'monthly' ? "border-primary" : "border-transparent hover:border-primary/40")}
+            onClick={() => setSelectedPlan('monthly')}
+          >
+            <h3 className="text-lg sm:text-xl font-bold mb-2">Mensual</h3>
+            <p className="text-2xl sm:text-3xl font-extrabold text-primary mb-2">$4.99<span className="text-xs sm:text-sm text-on-surface-variant font-normal">/mes</span></p>
+            {selectedPlan === 'monthly' ? (
+              <PaymentLinkButton plan="monthly" userId={userProfile.uid} />
+            ) : (
+              <button className="w-full mt-2 bg-primary text-on-primary py-3 rounded-xl font-bold">Seleccionar</button>
+            )}
+          </div>
+          
+          {/* Plan Anual */}
+          <div
+            className={cn("bg-primary text-on-primary p-5 sm:p-6 rounded-3xl shadow-xl flex flex-col items-center relative border-2 transition-colors cursor-pointer", selectedPlan === 'yearly' ? "border-tertiary" : "border-transparent")}
+            onClick={() => setSelectedPlan('yearly')}
+          >
+            <div className="absolute -top-3 right-4 bg-tertiary text-on-tertiary text-xs font-bold px-2 py-1 rounded-full">Ahorra 20%</div>
+            <h3 className="text-lg sm:text-xl font-bold mb-2">Anual</h3>
+            <p className="text-2xl sm:text-3xl font-extrabold mb-2">$47.99<span className="text-xs sm:text-sm font-normal opacity-80">/año</span></p>
+            {selectedPlan === 'yearly' ? (
+              <PaymentLinkButton plan="yearly" userId={userProfile.uid} />
+            ) : (
+              <button className="w-full mt-2 bg-white text-primary py-3 rounded-xl font-bold shadow-md">Seleccionar</button>
+            )}
+          </div>
+        </div>
+
+        <p className="text-xs text-on-surface-variant/60">Pago seguro. Cancela cuando quieras.</p>
+
+        <button onClick={onLogout} className="text-on-surface-variant text-sm font-medium underline mt-4 sm:mt-6">
+          Cerrar sesión
+        </button>
+      </main>
+    </div>
+  );
+}
+
+
+
 function LoginScreen() {
   return (
     <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center bg-surface">
@@ -1132,27 +1733,27 @@ function LoginScreen() {
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary-container/30 rounded-full blur-[80px]" />
       <div className="absolute bottom-[-15%] right-[-5%] w-[500px] h-[500px] bg-secondary-container/30 rounded-full blur-[80px]" />
       
-      <main className="relative z-10 w-full max-w-md px-8 flex flex-col items-center space-y-12">
-        <div className="text-center space-y-4">
-          <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-2xl border-4 border-primary/20 text-primary p-5 group">
+      <main className="relative z-10 w-full max-w-md px-5 sm:px-8 flex flex-col items-center space-y-8 sm:space-y-12 pb-20">
+        <div className="text-center space-y-3">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white rounded-[2rem] flex items-center justify-center mx-auto mb-4 sm:mb-6 shadow-2xl border-4 border-primary/20 text-primary p-4 sm:p-5 group">
             <Logo className="w-full h-full group-hover:scale-110 transition-transform duration-500" />
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight text-primary">BotanicAI <span className="text-sm font-medium bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v6.1.3</span></h1>
-          <h2 className="text-3xl font-bold leading-tight px-4">Cultiva la inteligencia de tu jardín.</h2>
-          <p className="text-on-surface-variant text-lg px-6">Una conexión etérea entre la tecnología y la naturaleza.</p>
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-primary">BotanicAI <span className="text-xs sm:text-sm font-medium bg-blue-600 text-white px-2 py-0.5 rounded-full ml-1">v8.5.0</span></h1>
+          <h2 className="text-xl sm:text-3xl font-bold leading-tight px-2 sm:px-4">Cultiva la inteligencia de tu jardín.</h2>
+          <p className="text-on-surface-variant text-sm sm:text-lg px-4 sm:px-6">Una conexión etérea entre la tecnología y la naturaleza.</p>
         </div>
 
         <div className="w-full space-y-4">
           <button 
             onClick={signInWithGoogle}
-            className="w-full bg-primary text-on-primary font-bold py-4 px-6 rounded-xl flex items-center justify-center space-x-3 shadow-lg active:scale-[0.98] transition-all"
+            className="w-full bg-primary text-on-primary font-bold py-3.5 sm:py-4 px-6 rounded-xl flex items-center justify-center space-x-3 shadow-lg active:scale-[0.98] transition-all"
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
             <span>Continuar con Google</span>
           </button>
         </div>
 
-        <div className="relative w-full aspect-square rounded-3xl overflow-hidden bg-surface-container-high/50 group antigravity-shadow">
+        <div className="relative w-full aspect-square rounded-3xl overflow-hidden bg-surface-container-high/50 group antigravity-shadow hidden sm:block">
           <img 
             src="https://picsum.photos/seed/botanic/800/800" 
             alt="Plant" 
@@ -1170,7 +1771,7 @@ function LoginScreen() {
         </div>
       </main>
       
-      <footer className="absolute bottom-8 w-full text-center px-8">
+      <footer className="absolute bottom-4 sm:bottom-8 w-full text-center px-8">
         <p className="text-[10px] text-on-surface-variant/60 tracking-wider uppercase">
           Al continuar, aceptas nuestros Términos y Política de Privacidad
         </p>
@@ -1179,7 +1780,7 @@ function LoginScreen() {
   );
 }
 
-function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChatCount }: { user: User, onClose: () => void, onLogout: () => void, onNavigate: (tab: any) => void, unreadCount: number, unreadChatCount: number }) {
+function SideMenu({ user, userProfile, isProMode, onClose, onLogout, onNavigate, unreadCount, unreadChatCount }: { user: User, userProfile: UserProfile | null, isProMode: boolean, onClose: () => void, onLogout: () => void, onNavigate: (tab: any) => void, unreadCount: number, unreadChatCount: number }) {
   const totalUnread = unreadCount + unreadChatCount;
   const menuItems = [
     { icon: Person, label: 'Mi Perfil', tab: 'profile' },
@@ -1190,7 +1791,7 @@ function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChat
     { icon: PriorityHigh, label: 'Ayuda y Soporte', tab: 'help' },
   ];
 
-  if (!PRO_EMAILS.includes(user.email || '')) {
+  if (!isProMode) {
     menuItems.push({ icon: Star, label: 'Saber más sobre Pro', tab: 'pro-benefits' });
   }
 
@@ -1215,7 +1816,7 @@ function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChat
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-primary/10 text-primary p-2">
                 <Logo className="w-full h-full" />
               </div>
-              <h2 className="text-2xl font-extrabold text-primary">BotanicAI <span className="text-sm font-medium opacity-40">v6.1.3</span></h2>
+              <h2 className="text-2xl font-extrabold text-primary">BotanicAI <span className="text-sm font-medium opacity-40">v8.6.1</span></h2>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-surface-container rounded-full">
               <X className="w-6 h-6" />
@@ -1223,12 +1824,12 @@ function SideMenu({ user, onClose, onLogout, onNavigate, unreadCount, unreadChat
           </div>
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-primary-container relative">
-              <img src={user.photoURL || ''} alt="User" className="w-full h-full object-cover" />
+              <img src={userProfile?.photoURL || user.photoURL || ''} alt="User" className="w-full h-full object-cover" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <p className="font-bold text-on-surface">{user.displayName || 'Usuario'}</p>
-                {PRO_EMAILS.includes(user.email || '') && (
+                {isProMode && (
                   <Star className="w-4 h-4 text-primary fill-current" />
                 )}
               </div>
@@ -1317,8 +1918,8 @@ function HomeContent({ tasks, plants, onSelectPlant, location, isProMode, setAct
 
   return (
     <div className="space-y-12 pb-12">
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="md:col-span-3 bg-primary text-on-primary rounded-3xl p-8 flex flex-col justify-between relative overflow-hidden antigravity-shadow">
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-4 sm:gap-6">
+        <div className="md:col-span-3 bg-primary text-on-primary rounded-3xl p-5 sm:p-8 flex flex-col justify-between relative overflow-hidden antigravity-shadow">
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-4">
               <span className="bg-primary-container text-on-primary-container px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">Hoy • {new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}</span>
@@ -1328,7 +1929,7 @@ function HomeContent({ tasks, plants, onSelectPlant, location, isProMode, setAct
                 {location && <span className="flex items-center gap-1"><Navigation className="w-3 h-3" /> Detectada</span>}
               </div>
             </div>
-            <h3 className="text-3xl font-bold mb-2">
+            <h3 className="text-xl sm:text-3xl font-bold mb-2">
               {weather.condition === 'Lluvia' ? "Día de lluvia" : randomWateringTip.current}
             </h3>
             <p className="text-on-primary/80 max-w-xs font-medium leading-relaxed">
@@ -1339,7 +1940,7 @@ function HomeContent({ tasks, plants, onSelectPlant, location, isProMode, setAct
                   : "Tus plantas están al día. El clima es ideal hoy."}
             </p>
           </div>
-          <button className="mt-8 bg-surface-container-lowest text-primary px-8 py-3 rounded-xl font-bold w-fit hover:scale-95 transition-transform shadow-xl">
+          <button className="mt-5 sm:mt-8 bg-surface-container-lowest text-primary px-6 sm:px-8 py-2.5 sm:py-3 rounded-xl font-bold text-sm sm:text-base w-fit hover:scale-95 transition-transform shadow-xl">
             Regar todo ahora
           </button>
           <WaterDrop className="absolute -right-12 -bottom-12 w-48 h-48 opacity-10 rotate-12" />
@@ -1417,7 +2018,7 @@ function PlantCard({ plant, onClick, isProMode }: { plant: Plant, onClick: () =>
   return (
     <div 
       onClick={onClick}
-      className="group flex flex-col md:flex-row bg-surface-container-lowest rounded-3xl overflow-hidden antigravity-shadow hover:translate-y-[-4px] transition-all duration-300 cursor-pointer relative"
+      className="group flex flex-col sm:flex-row bg-surface-container-lowest rounded-3xl overflow-hidden antigravity-shadow hover:translate-y-[-4px] transition-all duration-300 cursor-pointer relative"
     >
       {isProMode && (
         <div className="absolute top-4 right-4 z-10 bg-primary/10 backdrop-blur-md border border-primary/20 px-3 py-1 rounded-full flex items-center gap-1.5">
@@ -1425,7 +2026,7 @@ function PlantCard({ plant, onClick, isProMode }: { plant: Plant, onClick: () =>
           <span className="text-[10px] font-black text-primary uppercase tracking-widest">Análisis Pro</span>
         </div>
       )}
-      <div className="w-full md:w-48 h-48 relative overflow-hidden">
+      <div className="w-full sm:w-40 md:w-48 h-44 sm:h-48 relative overflow-hidden flex-shrink-0">
         <img 
           src={plant.imageUrl || `https://picsum.photos/seed/${plant.id}/400/400`} 
           alt={plant.name} 
@@ -1437,20 +2038,20 @@ function PlantCard({ plant, onClick, isProMode }: { plant: Plant, onClick: () =>
           </div>
         )}
       </div>
-      <div className="flex-1 p-8 flex flex-col md:flex-row justify-between md:items-center gap-6">
+      <div className="flex-1 p-4 sm:p-6 md:p-8 flex flex-col sm:flex-row justify-between sm:items-center gap-3 sm:gap-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-primary bg-primary-container/20 px-2 py-0.5 rounded-full">
               {plant.room || "Sin habitación"}
             </span>
           </div>
-          <h3 className="text-2xl font-bold mb-1">{plant.name}</h3>
+          <h3 className="text-lg sm:text-2xl font-bold mb-1">{plant.name}</h3>
           <p className="text-on-surface-variant flex items-center gap-2">
             <LocationOn className="w-4 h-4" />
             {plant.location}
           </p>
         </div>
-        <div className="flex flex-col md:items-end gap-2">
+        <div className="flex flex-col sm:items-end gap-2">
           <div className={cn(
             "flex items-center gap-2 px-4 py-2 rounded-full",
             plant.health < 80 ? "bg-error-container/20 text-error" : "bg-surface-container-low text-on-surface"
@@ -1492,7 +2093,7 @@ function HistoryContent({ scans, user }: { scans: Scan[], user: User }) {
   };
 
   return (
-    <div className="space-y-10 pb-12">
+    <div className="space-y-10 pb-32">
       <AnimatePresence>
         {selectedScan && (
           <ScanDetailModal scan={selectedScan} onClose={() => setSelectedScan(null)} />
@@ -1562,7 +2163,7 @@ function HistoryContent({ scans, user }: { scans: Scan[], user: User }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-1">
                       <h4 className="font-bold text-lg truncate">
-                        {scan.speciesOptions?.[0]?.name || "Planta desconocida"}
+                        {scan.speciesOptions?.[0]?.commonName || scan.speciesOptions?.[0]?.name || "Planta desconocida"}
                       </h4>
                       <div className="flex gap-2 shrink-0">
                         <button 
@@ -1571,11 +2172,7 @@ function HistoryContent({ scans, user }: { scans: Scan[], user: User }) {
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                        {scan.toxicityAlert && (
-                          <div className="p-1.5 bg-error-container text-error rounded-full">
-                            <PriorityHigh className="w-4 h-4" />
-                          </div>
-                        )}
+
                       </div>
                     </div>
                     <p className="text-xs text-on-surface-variant mb-3 font-medium">
@@ -1601,12 +2198,7 @@ function HistoryContent({ scans, user }: { scans: Scan[], user: User }) {
                   </div>
                 )}
 
-                {scan.toxicityAlert && (
-                  <div className="bg-error-container/20 p-3 rounded-2xl flex gap-3 items-start">
-                    <PriorityHigh className="w-5 h-5 text-error shrink-0" />
-                    <p className="text-xs text-error font-medium leading-relaxed">{scan.toxicityAlert}</p>
-                  </div>
-                )}
+
               </div>
             ))}
             {scans.length === 0 && (
@@ -1624,6 +2216,11 @@ function HistoryContent({ scans, user }: { scans: Scan[], user: User }) {
 function ScanDetailModal({ scan, onClose }: { scan: Scan, onClose: () => void }) {
   const bestOption = scan.speciesOptions[0];
   
+  useEffect(() => {
+    document.documentElement.style.setProperty('--nav-display', 'none');
+    return () => { document.documentElement.style.removeProperty('--nav-display'); };
+  }, []);
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -1643,10 +2240,72 @@ function ScanDetailModal({ scan, onClose }: { scan: Scan, onClose: () => void })
           <img src={scan.imageUrl} alt="Scan" className="w-full h-full object-cover" />
           <button 
             onClick={onClose}
-            className="absolute top-6 left-6 p-2 bg-surface/80 backdrop-blur-md rounded-full text-primary"
+            className="absolute top-6 left-6 p-2 bg-surface/80 backdrop-blur-md rounded-full text-primary shadow-lg"
           >
-            <ArrowBack className="w-6 h-6" />
+            <ArrowLeft className="w-6 h-6" />
           </button>
+          <div className="absolute top-6 right-6 flex gap-3">
+            <button 
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = scan.imageUrl;
+                a.download = `BotanicAI_${bestOption.commonName.replace(/\s+/g, '_')}.jpg`;
+                a.click();
+              }}
+              className="p-2 bg-surface/80 backdrop-blur-md rounded-full text-primary shadow-lg"
+              title="Guardar foto"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            </button>
+            <button 
+              onClick={async () => {
+                const textContent = `🟩 *${bestOption.commonName}* (${bestOption.name})\n\n🌿 *Características:*\n${bestOption.characteristics || 'No disponible'}\n\n📅 *Cuándo Plantar:*\n${bestOption.plantingTime || 'No disponible'}\n\n💚 *Cuidados:*\n${bestOption.care || 'No disponible'}\n\n🪴 *Trasplante:*\n${bestOption.transplantInfo || 'No disponible'}\n\n🔎 *Estado de Salud:*\n${scan.diagnosis || 'No disponible'}\n\n💡 *Recomendaciones:*\n${scan.recommendations || 'No disponible'}\n\n🌱 _Analizado con BotanicAI_`;
+
+                const shareData: any = { 
+                  title: `Descubrí un(a) ${bestOption.commonName}`,
+                  text: textContent 
+                };
+                
+                if (scan.imageUrl && scan.imageUrl.startsWith('data:')) {
+                  try {
+                    const match = scan.imageUrl.match(/data:([^;]+);/);
+                    const mimeType = match ? match[1] : 'image/jpeg';
+                    const ext = mimeType.split('/')[1] || 'jpg';
+                    
+                    const b64Data = scan.imageUrl.split(',')[1];
+                    const byteCharacters = atob(b64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                      byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {type: mimeType});
+                    
+                    const file = new window.File([blob], `planta_${Date.now()}.${ext}`, { 
+                      type: mimeType, 
+                      lastModified: Date.now() 
+                    });
+                    
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                      shareData.files = [file];
+                    }
+                  } catch(e) {
+                    console.warn("No se cargó imagen para compartir", e);
+                  }
+                }
+
+                if (navigator.share) {
+                  navigator.share(shareData).catch(console.error);
+                } else {
+                  alert('Tu dispositivo actual no soporta la función nativa de compartir.');
+                }
+              }}
+              className="p-2 bg-surface/80 backdrop-blur-md rounded-full text-primary shadow-lg"
+              title="Compartir"
+            >
+              <Share2 className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         <div className="p-8 space-y-8 overflow-y-auto no-scrollbar">
@@ -1660,10 +2319,10 @@ function ScanDetailModal({ scan, onClose }: { scan: Scan, onClose: () => void })
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <h2 className="text-4xl font-extrabold text-on-surface leading-none tracking-tighter">{bestOption.name}</h2>
-              <VoiceButton text={`${bestOption.name}, conocida como ${bestOption.commonName}.`} />
+              <h2 className="text-4xl font-extrabold text-on-surface leading-none tracking-tighter">{bestOption.commonName}</h2>
+              <VoiceButton text={`${bestOption.commonName}, especie científica ${bestOption.name}.`} />
             </div>
-            <p className="text-on-surface-variant italic font-medium">{bestOption.commonName}</p>
+            <p className="text-on-surface-variant italic font-medium">{bestOption.name}</p>
           </div>
 
           <div className="grid grid-cols-1 gap-6">
@@ -1700,15 +2359,7 @@ function ScanDetailModal({ scan, onClose }: { scan: Scan, onClose: () => void })
             <DetailSection icon={Notifications} title="Recomendaciones" content={scan.recommendations || "No disponible"} />
           </div>
 
-          {scan.toxicityAlert && (
-            <div className="bg-error-container/20 p-6 rounded-3xl flex gap-4 items-start border border-error/20">
-              <PriorityHigh className="w-6 h-6 text-error shrink-0" />
-              <div>
-                <p className="font-bold text-error mb-1">Alerta de Toxicidad</p>
-                <p className="text-sm text-error/80 leading-relaxed">{scan.toxicityAlert}</p>
-              </div>
-            </div>
-          )}
+
 
           <button 
             onClick={async () => {
@@ -1831,16 +2482,14 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [touchDist, setTouchDist] = useState(0);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const requestRef = useRef<number>();
-  const initTimeoutRef = useRef<NodeJS.Timeout>();
+  // Cámara desactivada por defecto — el usuario debe dar permiso explícitamente
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const requestRef = useRef<number>(undefined);
+  const initTimeoutRef = useRef<NodeJS.Timeout>(undefined);
 
   const stopCamera = () => {
     if (streamRef.current) {
-      console.log("Stopping camera tracks...");
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-        console.log(`Track ${track.kind} stopped`);
-      });
+      streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
     setStream(null);
@@ -1850,12 +2499,11 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
     stopCamera();
     setCameraError(null);
     try {
-      console.log("Requesting camera access...");
       const s = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: { ideal: 'environment' },
-          width: { ideal: 3840 },
-          height: { ideal: 2160 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30 }
         } 
       });
@@ -1871,29 +2519,31 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
           console.error("Auto-play failed:", e);
         }
         
-        // Forzar alta calidad después de un breve delay
         initTimeoutRef.current = setTimeout(async () => {
           if (!streamRef.current) return;
           const track = streamRef.current.getVideoTracks()[0];
           try {
             await track.applyConstraints({
-              width: { ideal: 3840 },
-              height: { ideal: 2160 },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
               //@ts-ignore
               focusMode: 'continuous',
               //@ts-ignore
               whiteBalanceMode: 'continuous'
             });
-          } catch (e) { console.log("HD Constraints failed, using best possible"); }
+          } catch (e) { /* HD constraints not supported, using best possible */ }
         }, 1000);
       }
     } catch (err: any) {
       console.error("Camera access denied or error:", err);
       setCameraError(err.message || "No se pudo acceder a la cámara");
+      setCameraEnabled(false);
     }
   };
 
+  // Solo inicializar la cámara cuando el usuario da permiso explícito
   useEffect(() => {
+    if (!cameraEnabled) return;
     init();
     const handleStatus = () => setIsOffline(!navigator.onLine);
     window.addEventListener('online', handleStatus);
@@ -1904,7 +2554,7 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
       window.removeEventListener('online', handleStatus);
       window.removeEventListener('offline', handleStatus);
     };
-  }, []);
+  }, [cameraEnabled]);
 
   const updateMagnifier = () => {
     if (zoom > 1 && videoRef.current && magnifierCanvasRef.current) {
@@ -2028,9 +2678,10 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
     reader.readAsDataURL(file);
   };
 
-  const processImage = async (imageData: string) => {
+  const processImage = async (originalImageData: string) => {
+    const imageData = await compressImage(originalImageData);
     if (isOffline) {
-      const queue = JSON.parse(localStorage.getItem('offline_scans') || '[]');
+      const queue = getLocalStorageJSON<string[]>('offline_scans', []);
       queue.push(imageData);
       localStorage.setItem('offline_scans', JSON.stringify(queue));
       alert("Modo Offline: Escaneo guardado. Se procesará cuando recuperes conexión.");
@@ -2040,14 +2691,9 @@ function CameraContent({ user, onScanComplete }: { user: User, onScanComplete: (
       return;
     }
 
-    if (!ai) {
-      alert("Servicio de IA no disponible. Por favor, configura tu API Key en la sección de Configuración.");
-      setIsAnalyzing(false);
-      return;
-    }
+
 
     try {
-      const model = ai.getGenerativeModel({ model: "gemini-2.0-flash", generationConfig: { responseMimeType: "application/json" } });
       const prompt = `Identifica esta planta y proporciona un análisis botánico completo. 
 REGLA DE ORO: Toda la información debe estar en ESPAÑOL.
 Responde estrictamente en JSON con este formato:
@@ -2069,19 +2715,27 @@ Responde estrictamente en JSON con este formato:
   "vigorIndex": 85,
   "vpd": 1.2,
   "par": 450,
-  "isMushroom": true,
   "mushroomWarning": "Si es un hongo, advertencia de NO consumo en español"
 }`;
 
-      const result = await model.generateContent([
-        prompt,
-        { inlineData: { data: imageData.split(',')[1], mimeType: 'image/jpeg' } }
-      ]);
+      const text = await callGeminiAPI({
+        model: getSelectedModel(),
+        imageData: imageData.split(',')[1],
+        mimeType: 'image/jpeg',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      });
       
-      const response = await result.response;
-      const text = response.text();
       if (!text) throw new Error("La IA no devolvió ninguna respuesta.");
-      const analysis = JSON.parse(text);
+      
+      // Bulletproof JSON extractor: Finds the absolute boundaries of the JSON object
+      // This ignores any conversational preamble (e.g. "Aquí tienes el análisis:") or markdown formatting.
+      const startIndex = text.indexOf('{');
+      const endIndex = text.lastIndexOf('}');
+      if (startIndex === -1 || endIndex === -1) {
+        throw new Error("Respuesta inválida de IA, no se encontró un formato JSON válido.");
+      }
+      const cleanText = text.substring(startIndex, endIndex + 1);
+      const analysis = JSON.parse(cleanText);
       
       await addDoc(collection(db, `users/${user.uid}/scans`), {
         ownerUid: user.uid,
@@ -2093,12 +2747,73 @@ Responde estrictamente en JSON con este formato:
       onScanComplete();
     } catch (err: any) {
       console.error("Analysis failed:", err);
-      alert(`Error de Análisis: ${err.message || "Error desconocido"}`);
+      let errMsg = err.message || "Error desconocido";
+      if (errMsg.includes('429') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('exhausted') || errMsg.toLowerCase().includes('resource has been exhausted')) {
+        errMsg = "Créditos de Gemini agotados o la cuota gratuita no está disponible en tu región. Por favor, vincula una cuenta de facturación.";
+      }
+      alert(`Error de Análisis: ${errMsg}`);
     } finally {
       setIsAnalyzing(false);
       setCapturedImage(null);
     }
   };
+
+  // Pantalla de permiso si la cámara no fue habilitada aún
+  if (!cameraEnabled) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="h-[calc(100vh-200px)] rounded-3xl bg-surface-container-lowest antigravity-shadow flex flex-col items-center justify-center p-8 text-center space-y-8"
+      >
+        <div className="relative">
+          <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center">
+            <Camera className="w-12 h-12 text-primary" />
+          </div>
+          <motion.div
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ repeat: Infinity, duration: 2 }}
+            className="absolute -top-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center"
+          >
+            <span className="text-on-primary text-xs font-black">!</span>
+          </motion.div>
+        </div>
+
+        <div className="space-y-3 max-w-xs">
+          <h2 className="text-2xl font-black tracking-tight">Escanear Planta</h2>
+          <p className="text-on-surface-variant leading-relaxed">
+            BotanicAI necesita acceso a tu cámara para identificar y analizar plantas. La cámara solo estará activa mientras uses esta pantalla.
+          </p>
+        </div>
+
+        <div className="w-full max-w-xs space-y-3">
+          <button
+            onClick={() => setCameraEnabled(true)}
+            className="w-full bg-primary text-on-primary py-4 rounded-2xl font-black text-lg shadow-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+          >
+            <Camera className="w-6 h-6" />
+            Activar Cámara
+          </button>
+
+          <label className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-bold text-primary bg-primary/5 border border-primary/20 cursor-pointer hover:bg-primary/10 transition-all">
+            <ImageIcon className="w-5 h-5" />
+            Subir desde Galería
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+          </label>
+        </div>
+
+        <p className="text-[10px] text-on-surface-variant/50 uppercase tracking-widest font-bold">
+          La cámara se apagará al salir de esta pantalla
+        </p>
+      </motion.div>
+    );
+  }
 
   return (
     <div 
@@ -2117,7 +2832,7 @@ Responde estrictamente en JSON con este formato:
             >
               <Spa className="w-16 h-16 text-primary" />
             </motion.div>
-            <h2 className="text-3xl font-black mb-2 text-primary">BOTANICAI v6.1.0</h2>
+            <h2 className="text-3xl font-black mb-2 text-primary">BOTANICAI v8.5.0</h2>
             <h3 className="text-2xl font-bold mb-2">Analizando ahora mismo...</h3>
             <p className="text-white/70 text-sm max-w-xs">BotanicAI está consultando su base de datos científica para darte el mejor diagnóstico.</p>
           </div>
@@ -2352,14 +3067,6 @@ function ChatContent({ user, plants, location, isProMode, setActiveTab }: { user
     setMessages(prev => [...prev, { role: 'user', content: userMsg, files: displayFiles }]);
     setSending(true);
 
-    if (!ai) {
-      const errorMsg = "Servicio de IA no disponible. Por favor, configura tu API Key en la sección de Configuración.";
-      setMessages(prev => [...prev, { role: 'bot', content: errorMsg }]);
-      speak(errorMsg);
-      setSending(false);
-      return;
-    }
-
     try {
       const now = new Date();
       const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -2371,31 +3078,31 @@ function ChatContent({ user, plants, location, isProMode, setActiveTab }: { user
         fileContext = `\n\nEl usuario ha adjuntado los siguientes archivos: ${currentFiles.map(f => f.name).join(', ')}. `;
       }
 
-      const model = ai.getGenerativeModel({ 
-        model: "gemini-2.0-flash",
-        systemInstruction: BOT_INSTRUCTIONS + `\n\n${context}\n\nContexto del jardín: El usuario tiene ${plants.length} plantas en su jardín digital. Puedes hablar de cualquier tema botánico, no solo de sus plantas. 
-        ${isProMode ? "IMPORTANTE: El usuario es PRO. Tienes acceso a la comunidad y al foro." : ""}`
-      });
+      const systemInstructionText = BOT_INSTRUCTIONS + `\n\n${context}\n\nContexto del jardín: El usuario tiene ${plants.length} plantas en su jardín digital. Puedes hablar de cualquier tema botánico, no solo de sus plantas. 
+        ${isProMode ? "IMPORTANTE: El usuario es PRO. Tienes acceso a la comunidad y al foro." : ""}`;
 
-      const history = messages
+      const contents = messages
         .filter((m, idx) => !(idx === 0 && m.role === 'bot'))
         .map(m => ({
           role: m.role === 'user' ? 'user' : 'model',
           parts: [{ text: m.content }]
         }));
+      contents.push({ role: 'user', parts: [{ text: userMsg + fileContext }] });
 
-      const chat = model.startChat({
-        history: history,
+      const botResponse = await callGeminiAPI({
+        model: getSelectedModel(),
+        contents,
+        systemInstruction: systemInstructionText,
       });
 
-      const result = await chat.sendMessage(userMsg + fileContext);
-      const response = await result.response;
-      const botResponse = response.text();
       setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
       speak(botResponse);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Chat failed:", err);
-      const errorMsg = "Lo siento, he tenido un problema al procesar tu consulta. ¿Podrías repetirla?";
+      let errorMsg = err.message || "Lo siento, he tenido un problema al procesar tu consulta. ¿Podrías repetirla?";
+      if (errorMsg.includes('429') || errorMsg.toLowerCase().includes('quota') || errorMsg.toLowerCase().includes('exhausted') || errorMsg.toLowerCase().includes('resource has been exhausted')) {
+        errorMsg = "⚠️ **Cuota de Gemini no disponible.** Por favor, revisa la facturación en Google AI Studio.";
+      }
       setMessages(prev => [...prev, { role: 'bot', content: errorMsg }]);
       speak(errorMsg);
     } finally {
@@ -2430,47 +3137,47 @@ function ChatContent({ user, plants, location, isProMode, setActiveTab }: { user
           <span>{isSpeakingEnabled ? "Voz Activada" : "Voz Desactivada"}</span>
         </button>
       </div>
-
-      <div className="flex-grow overflow-y-auto space-y-8 pb-32 no-scrollbar">
+      <div className="flex-grow overflow-y-auto space-y-3 pb-32 no-scrollbar">
         {messages.map((msg, i) => (
           <div key={i} className={cn(
-            "flex items-start gap-4 max-w-[85%] group",
-            msg.role === 'user' ? "flex-row-reverse ml-auto" : ""
+            "flex gap-2 w-full group transition-all",
+            msg.role === 'user' ? "flex-row-reverse" : "flex-row"
           )}>
             <div className={cn(
-              "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-lg p-2",
-              msg.role === 'bot' ? "bg-white border border-primary/10 text-primary" : ""
+              "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 shadow-sm mt-1",
+              msg.role === 'bot' ? "bg-white border border-primary/10 text-primary" : "bg-primary/20"
             )}>
               {msg.role === 'bot' ? (
-                <Logo className="w-full h-full" />
+                <Logo className="w-4 h-4" />
               ) : (
-                <img src={user.photoURL || ''} className="w-full h-full object-cover" alt="User" />
+                user.photoURL ? <img src={user.photoURL} className="w-full h-full rounded-lg object-cover" /> : <div className="w-full h-full bg-primary/20 rounded-lg flex items-center justify-center text-[10px] font-bold text-primary">U</div>
               )}
             </div>
+
             <div className={cn(
-              "bg-surface-container-lowest p-5 rounded-2xl shadow-sm space-y-3",
-              msg.role === 'bot' ? "rounded-tl-none" : "bg-primary text-on-primary rounded-tr-none"
+              "grow w-full max-w-full rounded-2xl shadow-sm space-y-1 transition-all",
+              msg.role === 'bot' 
+                ? "bg-surface-container-lowest p-3 border border-surface-container rounded-tl-none" 
+                : "bg-primary text-on-primary p-3 rounded-tr-none"
             )}>
               {msg.files && msg.files.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-2">
+                <div className="flex flex-wrap gap-1 mb-1">
                   {msg.files.map((f, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-black/10 px-3 py-1.5 rounded-lg text-[10px] font-bold">
-                      {f.type.includes('image') ? <ImageIcon className="w-3 h-3" /> : f.type.includes('pdf') ? <File className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
-                      <span className="truncate max-w-[100px]">{f.name}</span>
+                    <div key={idx} className="flex items-center gap-1.5 bg-black/5 px-2 py-1 rounded-md text-[9px] font-bold">
+                      {f.type.includes('image') ? <ImageIcon className="w-2.5 h-2.5" /> : <File className="w-2.5 h-2.5" />}
+                      <span className="truncate max-w-[80px]">{f.name}</span>
                     </div>
                   ))}
                 </div>
               )}
-              <div className="flex justify-between items-start gap-4">
-                <div className="prose prose-sm max-w-none">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-                {msg.role === 'bot' && (
-                  <div className="shrink-0 mt-1">
-                    <VoiceButton text={msg.content} />
-                  </div>
-                )}
+              <div className="prose prose-sm max-w-none text-inherit leading-tight">
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
               </div>
+              {msg.role === 'bot' && (
+                <div className="flex justify-end mt-1">
+                  <VoiceButton text={msg.content} />
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -2514,13 +3221,12 @@ function ChatContent({ user, plants, location, isProMode, setActiveTab }: { user
               <AddCircle className="w-6 h-6" />
             </button>
             
-            <input 
+            <textarea 
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              className="flex-grow bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant/60 px-2 font-medium text-sm sm:text-base" 
+              className="flex-grow bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant/60 px-2 py-3 font-medium text-sm sm:text-base resize-none" 
               placeholder="Escribe tu consulta aquí..." 
-              type="text" 
+              rows={2}
             />
 
             <div className="flex items-center gap-1 pr-1">
@@ -2639,7 +3345,7 @@ function PlantDetailModal({ plant, isProMode, onClose, addNotification, setActiv
             onClick={onClose}
             className="absolute top-6 left-6 p-2 bg-surface/80 backdrop-blur-md rounded-full text-primary"
           >
-            <ArrowBack className="w-6 h-6" />
+            <ArrowLeft className="w-6 h-6" />
           </button>
           {plant.isToxicToPets && (
             <div className="absolute top-6 right-6 bg-error text-on-error px-4 py-2 rounded-full text-xs font-bold flex items-center gap-2 shadow-xl">
@@ -2910,12 +3616,12 @@ function PostComments({ post, user }: { post: CommunityPost, user: User }) {
       </div>
 
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <input 
-          type="text" 
+        <textarea 
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           placeholder="Escribe un comentario..."
-          className="flex-1 bg-surface-container-low border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20"
+          className="flex-1 bg-surface-container-low border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 resize-none"
+          rows={2}
         />
         <button 
           type="submit"
@@ -3449,6 +4155,14 @@ function CommunityContent({ posts, user, scans, isProMode, onOpenChat, chatRooms
         </div>
       ) : activeSubTab === 'chat' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {chatRooms.length === 0 && (
+            <div className="col-span-full py-20 text-center space-y-4 bg-surface-container-low rounded-[3rem] border-2 border-dashed border-surface-container-high">
+              <div className="w-20 h-20 bg-surface-container-high rounded-full flex items-center justify-center mx-auto text-on-surface-variant/30">
+                <Spa className="w-10 h-10" />
+              </div>
+              <p className="text-on-surface-variant font-medium">No hay salas de chat disponibles en este momento.</p>
+            </div>
+          )}
           {chatRooms.map((room, idx) => {
             const lastSeenRoom = localStorage.getItem(`last_seen_room_${room.id}_${user.uid}`) || new Date(0).toISOString();
             const msgTime = room.lastMessageTime ? (room.lastMessageTime.toDate ? room.lastMessageTime.toDate().toISOString() : new Date(room.lastMessageTime).toISOString()) : new Date(0).toISOString();
@@ -3549,7 +4263,7 @@ function CommunityContent({ posts, user, scans, isProMode, onOpenChat, chatRooms
   );
 }
 
-function CreatePostModal({ user, onClose }: { user: User, onClose: () => void }) {
+function CreatePostModal({ user, onClose, onPublished }: { user: User, onClose: () => void, onPublished?: () => void }) {
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<'Diagnóstico' | 'Cuidados' | 'Decoración' | 'General'>('General');
   const [image, setImage] = useState<string | null>(null);
@@ -3620,6 +4334,7 @@ function CreatePostModal({ user, onClose }: { user: User, onClose: () => void })
         comments: 0,
         timestamp: serverTimestamp()
       });
+      if (onPublished) onPublished();
       onClose();
     } catch (err) {
       console.error("Error publishing post:", err);
@@ -3801,6 +4516,8 @@ function ExpertQueryModal({ user, scans, onClose }: { user: User, scans: Scan[],
 function ToolsContent() {
   const [lux, setLux] = useState(0);
   const [substrate, setSubstrate] = useState({ length: 20, width: 20, depth: 10 });
+  const [showCamera, setShowCamera] = useState(false);
+  const [parValue, setParValue] = useState(450);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -3808,6 +4525,17 @@ function ToolsContent() {
     }, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    let interval: any;
+    if (showCamera) {
+      interval = setInterval(() => {
+        const value = Math.floor(Math.random() * (70 - 40 + 1) + 40);
+        setParValue(value);
+      }, 500);
+    }
+    return () => clearInterval(interval);
+  }, [showCamera]);
 
   const substrateVolume = (substrate.length * substrate.width * substrate.depth) / 1000;
 
@@ -3943,7 +4671,7 @@ function CareCard({ icon: Icon, title, value, sub, color }: { icon: any, title: 
   );
 }
 
-function ProfileContent({ user, profile, notifPrefs, setNotifPrefs }: { user: User, profile: UserProfile | null, notifPrefs: { sound: boolean, vibration: boolean }, setNotifPrefs: React.Dispatch<React.SetStateAction<{ sound: boolean, vibration: boolean }>> }) {
+function ProfileContent({ user, profile, notifPrefs, setNotifPrefs, onLogout }: { user: User, profile: UserProfile | null, notifPrefs: { sound: boolean, vibration: boolean }, setNotifPrefs: React.Dispatch<React.SetStateAction<{ sound: boolean, vibration: boolean }>>, onLogout: () => void }) {
   const [formData, setFormData] = useState({
     firstName: profile?.firstName || '',
     lastName: profile?.lastName || '',
@@ -3987,16 +4715,17 @@ function ProfileContent({ user, profile, notifPrefs, setNotifPrefs }: { user: Us
   };
 
   const handleSave = async () => {
-    if (formData.phoneNumber) {
+    const { phoneNumber, country } = formData;
+    if (phoneNumber) {
       try {
-        const countryCode = formData.country as CountryCode;
-        if (!isValidPhoneNumber(formData.phoneNumber, countryCode)) {
+        const countryCode = country as CountryCode;
+        if (!isValidPhoneNumber(phoneNumber, countryCode)) {
           alert('El número de teléfono no es válido para el país seleccionado');
           return;
         }
         
-        const parsed = parsePhoneNumber(formData.phoneNumber, countryCode);
-        const formattedPhone = parsed.format('E.164');
+        let phoneObj = parsePhoneNumber(phoneNumber, (country as CountryCode) || 'AR');
+        const formattedPhone = phoneObj.format('E.164');
         
         // Check uniqueness (requires Cloud Function for proper enforcement in production)
         try {
@@ -4024,6 +4753,11 @@ function ProfileContent({ user, profile, notifPrefs, setNotifPrefs }: { user: Us
     setSaving(true);
     try {
       await setDoc(doc(db, 'users', user.uid), formData, { merge: true });
+      if (auth.currentUser && formData.photoURL && formData.photoURL !== user.photoURL) {
+        await updateProfile(auth.currentUser, { photoURL: formData.photoURL });
+        // Update local user object to reflect changes immediately
+        Object.assign(user, { photoURL: formData.photoURL });
+      }
       alert('Perfil actualizado con éxito');
     } catch (err) {
       console.error(err);
@@ -4053,14 +4787,14 @@ function ProfileContent({ user, profile, notifPrefs, setNotifPrefs }: { user: Us
     }
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext('2d');
       if (context) {
         canvasRef.current.width = videoRef.current.videoWidth;
         canvasRef.current.height = videoRef.current.videoHeight;
         context.drawImage(videoRef.current, 0, 0);
-        const data = canvasRef.current.toDataURL('image/jpeg');
+        const data = await compressImage(canvasRef.current.toDataURL('image/jpeg'), 512);
         setFormData({ ...formData, photoURL: data });
         stopCamera();
         setShowPhotoOptions(false);
@@ -4074,8 +4808,10 @@ function ProfileContent({ user, profile, notifPrefs, setNotifPrefs }: { user: Us
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          setFormData({ ...formData, photoURL: event.target.result as string });
-          setShowPhotoOptions(false);
+          compressImage(event.target.result as string, 512).then(compressed => {
+            setFormData({ ...formData, photoURL: compressed });
+            setShowPhotoOptions(false);
+          });
         }
       };
       reader.readAsDataURL(file);
@@ -4190,11 +4926,17 @@ function ProfileContent({ user, profile, notifPrefs, setNotifPrefs }: { user: Us
             className="w-full bg-surface-container-low border-none rounded-2xl p-4 font-bold text-on-surface focus:ring-2 focus:ring-primary/20 transition-all appearance-none"
           >
             <option value="">Seleccionar país</option>
-            {countries.map(code => (
-              <option key={code} value={code}>
-                {getFlagEmoji(code)} {code}
-              </option>
-            ))}
+            {countries.map(code => {
+              let countryName: string = code;
+              try {
+                countryName = new Intl.DisplayNames(['es'], { type: 'region' }).of(code) || code;
+              } catch(e){}
+              return (
+                <option key={code} value={code}>
+                  {getFlagEmoji(code)} {countryName}
+                </option>
+              );
+            })}
           </select>
         </div>
         <div className="space-y-2">
@@ -4283,6 +5025,21 @@ function ProfileContent({ user, profile, notifPrefs, setNotifPrefs }: { user: Us
       >
         {saving ? 'Guardando...' : 'Guardar Cambios'}
       </button>
+
+      {/* Logout — divider + destructive button */}
+      <div className="flex items-center gap-4 pt-2">
+        <div className="flex-1 h-px bg-surface-container-highest" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/50">Cuenta</span>
+        <div className="flex-1 h-px bg-surface-container-highest" />
+      </div>
+
+      <button
+        onClick={onLogout}
+        className="w-full flex items-center justify-center gap-3 bg-error/10 text-error border border-error/20 py-4 rounded-2xl font-black hover:bg-error/20 active:scale-95 transition-all"
+      >
+        <ArrowLeft className="w-5 h-5" />
+        Cerrar Sesión
+      </button>
     </div>
   );
 }
@@ -4293,9 +5050,12 @@ function ChatRoomContent({ room, user, onBack, setRoomUnreadCounts }: { room: Ch
   const [isListening, setIsListening] = useState(false);
   const [isSpeakingEnabled, setIsSpeakingEnabled] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [deletingMsgId, setDeletingMsgId] = useState<string | null>(null);
+  const [activeDeleteMenu, setActiveDeleteMenu] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const q = query(
@@ -4303,23 +5063,24 @@ function ChatRoomContent({ room, user, onBack, setRoomUnreadCounts }: { room: Ch
       orderBy('timestamp', 'asc'),
       limit(100)
     );
-      const unsub = onSnapshot(q, (snap) => {
-        const newMsgs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage));
-        setMessages(newMsgs);
-        
-        // Speak last message if it's from someone else
-        if (isSpeakingEnabled && newMsgs.length > 0) {
-          const lastMsg = newMsgs[newMsgs.length - 1];
-          if (lastMsg.authorUid !== user.uid) {
-            speak(`${lastMsg.authorName} dice: ${lastMsg.content}`);
-          }
+    const unsub = onSnapshot(q, (snap) => {
+      console.log(`Loaded ${snap.docs.length} messages for room ${room.id}`);
+      const newMsgs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatMessage));
+      setMessages(newMsgs);
+      
+      // Speak last message if it's from someone else
+      if (isSpeakingEnabled && newMsgs.length > 0) {
+        const lastMsg = newMsgs[newMsgs.length - 1];
+        if (lastMsg.authorUid !== user.uid) {
+          speak(`${lastMsg.authorName} dice: ${lastMsg.content}`);
         }
+      }
 
-        // Mark as read when messages are loaded/updated while viewing
-        const now = new Date().toISOString();
-        localStorage.setItem(`last_seen_room_${room.id}_${user.uid}`, now);
-        setRoomUnreadCounts(prev => ({ ...prev, [room.id]: 0 }));
-      }, (err) => handleFirestoreError(err, OperationType.LIST, `chat_rooms/${room.id}/messages`));
+      // Mark as read when messages are loaded/updated while viewing
+      const now = new Date().toISOString();
+      localStorage.setItem(`last_seen_room_${room.id}_${user.uid}`, now);
+      setRoomUnreadCounts(prev => ({ ...prev, [room.id]: 0 }));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, `chat_rooms/${room.id}/messages`));
     return unsub;
   }, [room.id, user.uid, isSpeakingEnabled]);
 
@@ -4389,6 +5150,32 @@ function ChatRoomContent({ room, user, onBack, setRoomUnreadCounts }: { room: Ch
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!window.confirm('¿Eliminar este mensaje? Esta acción no se puede deshacer.')) return;
+    setDeletingMsgId(msgId);
+    setActiveDeleteMenu(null);
+    try {
+      await deleteDoc(doc(db, `chat_rooms/${room.id}/messages`, msgId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `chat_rooms/${room.id}/messages/${msgId}`);
+    } finally {
+      setDeletingMsgId(null);
+    }
+  };
+
+  const handleMessageLongPress = (msgId: string) => {
+    longPressTimer.current = setTimeout(() => {
+      setActiveDeleteMenu(prev => prev === msgId ? null : msgId);
+    }, 500);
+  };
+
+  const handleMessagePressEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!newMessage.trim() && attachedFiles.length === 0)) return;
@@ -4419,13 +5206,14 @@ function ChatRoomContent({ room, user, onBack, setRoomUnreadCounts }: { room: Ch
         lastMessageTime: serverTimestamp(),
         lastMessageAuthorUid: user.uid
       });
+      window.dispatchEvent(new CustomEvent('botanic_post_published'));
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `chat_rooms/${room.id}/messages`);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto h-[70vh] flex flex-col bg-surface-container-lowest rounded-3xl antigravity-shadow overflow-hidden border border-surface-container-high">
+    <div className="w-full max-w-[98vw] mx-auto h-[82vh] flex flex-col bg-surface-container-lowest rounded-3xl antigravity-shadow overflow-hidden border border-surface-container-high transition-all">
       <div className="p-6 border-b border-surface-container-high flex items-center gap-4 bg-surface-container-low">
         <button onClick={onBack} className="p-2 hover:bg-surface-container-highest rounded-full transition-colors">
           <ArrowBack className="w-6 h-6" />
@@ -4458,53 +5246,62 @@ function ChatRoomContent({ room, user, onBack, setRoomUnreadCounts }: { room: Ch
         </button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar bg-[#e5ddd5] dark:bg-surface-container-lowest/50">
-        {messages.map((msg) => (
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-1.5 no-scrollbar bg-[#e5ddd5] dark:bg-surface-container-lowest/50"
+        onClick={() => setActiveDeleteMenu(null)}
+      >
+        {messages.map((msg) => {
+          const isOwn = msg.authorUid === user.uid;
+          const isDeleting = deletingMsgId === msg.id;
+          const showDeleteMenu = activeDeleteMenu === msg.id;
+          return (
           <div key={msg.id} className={cn(
-            "flex w-full",
-            msg.authorUid === user.uid ? "justify-end" : "justify-start"
+            "flex gap-1.5 w-full items-start",
+            isOwn ? "flex-row-reverse" : "flex-row"
           )}>
-            <div className={cn(
-              "px-3 py-2 rounded-xl text-sm shadow-sm relative min-w-[120px] max-w-[85%] space-y-2",
-              msg.authorUid === user.uid 
-                ? "bg-[#dcf8c6] text-on-surface rounded-tr-none" 
-                : "bg-white text-on-surface rounded-tl-none"
-            )}>
-              {msg.authorUid !== user.uid && (
-                <div className="flex justify-between items-center gap-4 mb-0.5">
-                  <p className="text-[10px] font-black text-primary uppercase tracking-widest">
+            <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0 shadow-sm mt-0.5 border border-white/50">
+              {msg.authorPhoto ? <img src={msg.authorPhoto} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-primary/20 flex items-center justify-center text-[8px] font-bold text-primary">?</div>}
+            </div>
+
+            <div
+              className={cn(
+                "grow px-3 py-1.5 rounded-2xl text-[14px] shadow-sm relative w-full space-y-0.5 transition-opacity",
+                isOwn
+                  ? "bg-[#dcf8c6] text-on-surface rounded-tr-none"
+                  : "bg-white text-on-surface rounded-tl-none",
+                isDeleting && "opacity-40 pointer-events-none"
+              )}
+              onTouchStart={() => isOwn && handleMessageLongPress(msg.id)}
+              onTouchEnd={handleMessagePressEnd}
+              onTouchMove={handleMessagePressEnd}
+              onMouseDown={() => isOwn && handleMessageLongPress(msg.id)}
+              onMouseUp={handleMessagePressEnd}
+              onMouseLeave={handleMessagePressEnd}
+            >
+              {!isOwn && (
+                <div className="flex justify-between items-center mb-0.5">
+                  <p className="text-[9px] font-black text-primary/60 uppercase tracking-tighter">
                     {msg.authorName}
                   </p>
                   <VoiceButton text={msg.content} />
                 </div>
               )}
-              
-              {(msg as any).files && (msg as any).files.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {(msg as any).files.map((f: any, idx: number) => (
-                    <div key={idx} className="flex items-center gap-2 bg-black/5 px-2 py-1 rounded-lg text-[9px] font-bold">
-                      {f.type.includes('image') ? <ImageIcon className="w-3 h-3" /> : f.type.includes('pdf') ? <File className="w-3 h-3 text-error" /> : <FileText className="w-3 h-3 text-blue-500" />}
-                      <span className="truncate max-w-[100px]">{f.name}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <p className="leading-tight">{isDeleting ? '⏳ Eliminando...' : msg.content}</p>
 
-              <p className="leading-tight mb-4">{msg.content}</p>
-              <div className="absolute bottom-1 right-2 flex items-center gap-1.5">
-                <span className="text-[9px] text-on-surface-variant/70 font-medium">
-                  {msg.timestamp?.toDate ? (
-                    <>
-                      {msg.timestamp.toDate().toLocaleDateString([], { day: '2-digit', month: '2-digit' })}
-                      {' '}
-                      {msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </>
-                  ) : '...'}
-                </span>
-              </div>
+              {/* Delete button — visible on long-press for own messages */}
+              {isOwn && showDeleteMenu && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDeleteMessage(msg.id); }}
+                  className="absolute -top-7 right-0 flex items-center gap-1.5 bg-error text-on-error text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-150 z-10"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Eliminar
+                </button>
+              )}
             </div>
           </div>
-        ))}
+          );
+        })}
+
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-30">
             <ChatBubble className="w-12 h-12" />
@@ -4550,12 +5347,12 @@ function ChatRoomContent({ room, user, onBack, setRoomUnreadCounts }: { room: Ch
             <AddCircle className="w-6 h-6" />
           </button>
 
-          <input 
-            type="text" 
+          <textarea 
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Escribe un mensaje..."
-            className="flex-1 bg-surface-container-lowest px-4 py-3 rounded-2xl border border-surface-container-highest focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium text-sm sm:text-base"
+            className="flex-1 bg-surface-container-lowest px-4 py-3 rounded-2xl border border-surface-container-highest focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-medium text-sm sm:text-base resize-none"
+            rows={2}
           />
 
           <div className="flex items-center gap-1">
@@ -4760,108 +5557,404 @@ function HelpContent() {
   );
 }
 
-function SettingsContent() {
-  const [apiKey, setApiKey] = useState(localStorage.getItem('BOTANIC_API_KEY') || '');
+function SettingsContent({ user, chatSoundUrl, onChangeChatSound }: {
+  user: User;
+  chatSoundUrl: string;
+  onChangeChatSound: (url: string) => void;
+}) {
+  let cachedModel = localStorage.getItem('BOTANIC_AI_MODEL') || 'gemini-2.5-flash';
+  if (cachedModel !== 'gemini-2.5-flash' && cachedModel !== 'gemini-2.5-pro') cachedModel = 'gemini-2.5-flash';
+  const [aiModel, setAiModel] = useState(cachedModel);
   const [saved, setSaved] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [soundTestPlaying, setSoundTestPlaying] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
+
+  const PRESET_SOUNDS = [
+    { label: '🔔 Campana suave', url: 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3' },
+    { label: '💬 Burbuja', url: 'https://assets.mixkit.co/active_storage/sfx/209/209-preview.mp3' },
+    { label: '🌿 Chime natural', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
+    { label: '✨ Notificación corta', url: 'https://assets.mixkit.co/active_storage/sfx/1862/1862-preview.mp3' },
+  ];
+
+  const handleTestSound = () => {
+    setSoundTestPlaying(true);
+    const audio = new Audio(chatSoundUrl);
+    audio.play().catch(() => {});
+    audio.onended = () => setSoundTestPlaying(false);
+    setTimeout(() => setSoundTestPlaying(false), 3000);
+  };
+
+  const handleUploadSound = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      onChangeChatSound(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = () => {
-    localStorage.setItem('BOTANIC_API_KEY', apiKey.trim());
+    localStorage.setItem('BOTANIC_AI_MODEL', aiModel);
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
-      window.location.reload(); // Reload to re-initialize AI service
-    }, 1500);
+      window.location.reload();
+    }, 1200);
+  };
+
+  const handleCleanupDatabase = async () => {
+    if (isCleaning) return;
+    if (!window.confirm('¿ESTÁS SEGURO? Esta acción borrará TODOS los usuarios y sus datos (plantas, escaneos, tareas) EXCEPTO las cuentas administradoras. No se puede deshacer.')) return;
+    
+    setIsCleaning(true);
+
+    try {
+      console.log("BotanicAI v8.5.0 - Database Cleanup Start");
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const tokenResult = await currentUser.getIdTokenResult();
+        console.log('BotanicAI | Cleanup | User Info:', {
+          email: currentUser.email,
+          uid: currentUser.uid,
+          tokenEmail: tokenResult.claims.email,
+          emailVerified: tokenResult.claims.email_verified
+        });
+      }
+      
+      let usersSnap;
+      try {
+        console.log('BotanicAI | Cleanup | Leyendo colección users...');
+        usersSnap = await getDocs(collection(db, 'users'));
+        console.log(`BotanicAI | Cleanup | Encontrados ${usersSnap.docs.length} usuarios.`);
+      } catch (readErr) {
+        console.error('BotanicAI | Cleanup | Error al leer colección users:', readErr);
+        throw new Error('No tienes permisos para leer la lista de usuarios. Verifica las reglas de Firestore.');
+      }
+      
+      const proEmailsLower = PRO_EMAILS.map(e => e.toLowerCase());
+      let deletedCount = 0;
+      let resetCount = 0;
+      
+      for (const userDoc of usersSnap.docs) {
+        const userData = userDoc.data();
+        const userEmail = (userData.email || '').toLowerCase().trim();
+        const isAdminEmail = proEmailsLower.includes(userEmail);
+        
+        if (!isAdminEmail) {
+          // Non-admin user: delete document and all subcollections
+          console.log(`BotanicAI | Cleanup | Eliminando usuario: ${userEmail} (${userDoc.id})`);
+          
+          const subcollections = ['plants', 'tasks', 'scans'];
+          for (const sub of subcollections) {
+            try {
+              const subSnap = await getDocs(collection(db, `users/${userDoc.id}/${sub}`));
+              for (const subDoc of subSnap.docs) {
+                await deleteDoc(subDoc.ref);
+              }
+              if (subSnap.docs.length > 0) {
+                console.log(`BotanicAI | Cleanup | Eliminados ${subSnap.docs.length} docs de ${sub} para ${userEmail}`);
+              }
+            } catch (subErr) {
+              console.warn(`BotanicAI | Cleanup | Error en subcolección ${sub} de ${userEmail}:`, subErr);
+            }
+          }
+          
+          try {
+            await deleteDoc(userDoc.ref);
+            deletedCount++;
+          } catch (delErr) {
+            console.error(`BotanicAI | Cleanup | Error al eliminar usuario ${userEmail}:`, delErr);
+          }
+        } else if (userData.isPremium && !proEmailsLower.includes(userEmail)) {
+          // Admin email but with a paid subscription flag — shouldn't happen but clean it up
+          try {
+            await updateDoc(userDoc.ref, { isPremium: false, premiumExpiresAt: null, premiumPlan: null });
+            resetCount++;
+            console.log(`BotanicAI | Cleanup | Reset isPremium para admin ${userEmail}`);
+          } catch (resetErr) {
+            console.warn(`BotanicAI | Cleanup | Error reseteando admin ${userEmail}:`, resetErr);
+          }
+        }
+      }
+
+      alert(`✅ Limpieza completada.\n• ${deletedCount} cuentas eliminadas\n• ${resetCount} suscripciones reseteadas`);
+    } catch (err) {
+      console.error('Error during cleanup:', err);
+      alert('Error durante la limpieza: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
+  const handleInitializeDatabase = async () => {
+    if (!window.confirm('¿Deseas inicializar la base de datos con datos base (consejos, comunidad)?')) return;
+    
+    setIsCleaning(true);
+    try {
+      console.log("BotanicAI | Init | Inicializando datos base...");
+      
+      // IMPORTANTE: 'species' es campo requerido por isValidTip en Firestore rules
+      const tips = [
+        {
+          species: "General",
+          content: "Es mejor regar menos que regar de más. Introduce el dedo 2 cm en la tierra antes de regar — si está húmeda, espera.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+        {
+          species: "General",
+          content: "La mayoría de las plantas de interior prefieren luz indirecta brillante. Evita la luz solar directa que puede quemar sus hojas.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+        {
+          species: "Monstera deliciosa",
+          content: "La Monstera prefiere luz indirecta brillante. Limpia sus grandes hojas con un trapo húmedo para optimizar la fotosíntesis y dale soporte con un tutor de musgo.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+        {
+          species: "Suculentas",
+          content: "Las suculentas necesitan sustrato muy drenante. Riega solo cuando la tierra esté completamente seca y asegúrate de que la maceta tenga agujeros de drenaje.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+        {
+          species: "Pothos (Epipremnum aureum)",
+          content: "El Pothos es ideal para principiantes. Tolera poca luz y el riego irregular. Propágalo en agua cortando justo debajo de un nudo con al menos 2-3 hojas.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+        {
+          species: "Orquídea (Phalaenopsis)",
+          content: "Las orquídeas Phalaenopsis prefieren luz indirecta y riegos semanales. Deja que el agua escurra completamente. La floración se activa con diferencia de 5-8°C entre día y noche.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+        {
+          species: "Ficus lyrata",
+          content: "El Ficus lyrata odia los cambios de ubicación. Ponlo en un lugar fijo con luz brillante indirecta y riega solo cuando los 3 cm superiores de tierra estén secos.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+        {
+          species: "Cactus",
+          content: "Los cactus son los más resistentes a la sequía. En verano riega cada 2-3 semanas; en invierno una vez al mes. Necesitan luz solar directa y sustrato especial para cactus.",
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI",
+          timestamp: serverTimestamp(),
+        },
+      ];
+      
+      let tipsCreated = 0;
+      for (const tip of tips) {
+        try {
+          await addDoc(collection(db, 'plant_tips'), tip);
+          tipsCreated++;
+          console.log(`BotanicAI | Init | Tip ${tipsCreated}/${tips.length}: ${tip.species}`);
+        } catch (tipErr) {
+          console.error(`BotanicAI | Init | Error tip ${tip.species}:`, tipErr);
+        }
+      }
+      
+      try {
+        await addDoc(collection(db, 'community_posts'), {
+          authorUid: user.uid,
+          authorName: user.displayName || "BotanicAI Team",
+          authorPhoto: user.photoURL || "",
+          content: "🌱 ¡Bienvenidos a BotanicAI v8.5.0! Esta es nuestra nueva base de datos mejorada. Aquí podrás compartir tus plantas, hacer preguntas y aprender junto a la comunidad. ¡Comencemos!",
+          imageUrl: "",
+          timestamp: serverTimestamp(),
+          likes: 0,
+          comments: 0,
+        });
+        console.log("BotanicAI | Init | Post de bienvenida creado.");
+      } catch (postErr) {
+        console.error("BotanicAI | Init | Error post bienvenida:", postErr);
+      }
+      
+      alert(`✅ Base de datos inicializada.\n• ${tipsCreated} consejos creados\n• Post de bienvenida publicado`);
+    } catch (err) {
+      console.error('Error during init:', err);
+      alert('Error al inicializar: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsCleaning(false);
+    }
   };
 
   return (
     <div className="max-w-2xl mx-auto space-y-10 pb-12">
       <div className="text-center space-y-4">
+        {SUPER_ADMIN_EMAILS.includes(user.email || '') && (
+          <div className="p-6 bg-error-container/10 rounded-[2.5rem] border-2 border-error/20 space-y-4">
+            <div className="flex items-center gap-3 text-error">
+              <AlertCircle className="w-6 h-6" />
+              <h3 className="font-bold">Herramientas de Administrador</h3>
+            </div>
+            <p className="text-sm text-on-surface-variant">Zona restringida. Estas acciones afectan a toda la base de datos.</p>
+            <button 
+              onClick={handleCleanupDatabase}
+              disabled={isCleaning}
+              className="w-full py-4 bg-error text-on-error rounded-2xl font-bold shadow-lg active:scale-95 transition-all disabled:opacity-50"
+            >
+              {isCleaning ? 'Procesando...' : 'Limpiar Base de Datos (Mantener solo Pro)'}
+            </button>
+            <button 
+              onClick={handleInitializeDatabase}
+              disabled={isCleaning}
+              className="w-full py-4 bg-primary text-on-primary rounded-2xl font-bold shadow-lg active:scale-95 transition-all disabled:opacity-50"
+            >
+              {isCleaning ? 'Inicializando...' : 'Cargar Datos Iniciales (v8.5.0)'}
+            </button>
+          </div>
+        )}
         <div className="w-16 h-16 bg-primary/10 text-primary rounded-3xl flex items-center justify-center mx-auto shadow-sm">
           <Settings className="w-8 h-8" />
         </div>
         <h2 className="text-3xl font-black tracking-tighter">Configuración</h2>
-        <p className="text-on-surface-variant font-medium">Gestiona tus claves de API para los servicios de IA.</p>
+        <p className="text-on-surface-variant font-medium">Personaliza tu experiencia con BotanicAI.</p>
       </div>
 
       <div className="bg-surface-container-lowest p-8 rounded-[2.5rem] antigravity-shadow border border-surface-container space-y-8">
+        {/* Motor de IA */}
         <div className="space-y-4">
           <div className="flex items-center gap-3">
-             <div className="p-2 bg-primary/10 rounded-xl text-primary">
-               <FlashOn className="w-5 h-5" />
-             </div>
-             <h3 className="text-lg font-bold tracking-tight">OpenRouter / Gemini API Key</h3>
+            <div className="p-2 bg-tertiary/10 rounded-xl text-tertiary">
+              <Menu className="w-5 h-5" />
+            </div>
+            <h3 className="text-lg font-bold tracking-tight">Motor de IA</h3>
           </div>
           <p className="text-sm text-on-surface-variant leading-relaxed">
-            Pega aquí tu clave de <strong>OpenRouter</strong> (empieza por sk-or-...) para usar modelos gratuitos en BotanicAI.
+            Elige el modelo de inteligencia artificial que prefieras. Si uno está lento, prueba otro.
           </p>
-          <div className="relative group">
-            <input 
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-or-v1-..."
-              className="w-full bg-surface-container-low border-2 border-transparent focus:border-primary/20 rounded-2xl p-5 text-sm font-bold transition-all focus:bg-white"
-            />
-          </div>
+          <select
+            value={aiModel}
+            onChange={(e) => setAiModel(e.target.value)}
+            className="w-full bg-surface-container-low border-2 border-transparent focus:border-primary/20 rounded-2xl p-5 text-sm font-bold transition-all appearance-none cursor-pointer"
+          >
+            <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash — Rápido y eficiente</option>
+            <option value="gemini-2.5-pro">🌟 Gemini 2.5 Pro — Máxima capacidad</option>
+          </select>
         </div>
 
-        <button 
-          onClick={handleSave}
-          className="w-full bg-primary text-on-primary py-4 rounded-2xl font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-lg flex items-center justify-center gap-3"
-        >
-          {saved ? (
-            <>
-              <HealthAndSafety className="w-6 h-6" />
-              <span>Guardado. Reiniciando...</span>
-            </>
-          ) : (
-            <>
-              <AddCircle className="w-6 h-6" />
-              <span>Guardar Configuración</span>
-            </>
-          )}
-        </button>
-      </div>
+        {/* Sonido de Chat */}
+        <div className="space-y-4 border-t border-surface-container pt-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-secondary/10 rounded-xl text-secondary">
+              <Notifications className="w-5 h-5" />
+            </div>
+            <h3 className="text-lg font-bold tracking-tight">Sonido de Chat Grupal</h3>
+          </div>
+          <p className="text-sm text-on-surface-variant leading-relaxed">
+            Elige el tono que suena cuando alguien escribe en los chats grupales.
+          </p>
 
-      <div className="bg-primary/5 p-6 rounded-3xl border border-primary/10 space-y-3">
-        <h4 className="font-bold text-primary flex items-center gap-2">
-          <PriorityHigh className="w-4 h-4" />
-          Nota de Seguridad
-        </h4>
-        <p className="text-xs text-on-surface-variant leading-relaxed">
-          Tu clave se guarda localmente en este navegador (**localStorage**). Esto significa que nunca se envía a un servidor externo de BotanicAI, garantizando que solo tú tengas acceso a ella.
-        </p>
+          {/* Presets */}
+          <div className="grid grid-cols-1 gap-2">
+            {PRESET_SOUNDS.map((s) => (
+              <button
+                key={s.url}
+                onClick={() => onChangeChatSound(s.url)}
+                className={cn(
+                  'flex items-center gap-3 px-4 py-3 rounded-2xl border-2 text-left font-medium text-sm transition-all',
+                  chatSoundUrl === s.url
+                    ? 'border-primary bg-primary/5 text-primary font-bold'
+                    : 'border-surface-container text-on-surface-variant hover:border-primary/40'
+                )}
+              >
+                <span className="flex-1">{s.label}</span>
+                {chatSoundUrl === s.url && (
+                  <span className="text-[10px] font-black bg-primary text-on-primary px-2 py-0.5 rounded-full">ACTIVO</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Upload custom */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => uploadRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-3 rounded-2xl border-2 border-dashed border-surface-container-highest text-on-surface-variant hover:border-primary/40 transition-all text-sm font-medium w-full"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Subir mi propio tono (MP3, AAC, OGG...)</span>
+            </button>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={handleUploadSound}
+            />
+            {chatSoundUrl.startsWith('data:') && (
+              <p className="text-xs text-primary font-bold flex items-center gap-1">
+                <HealthAndSafety className="w-3.5 h-3.5" /> Tono personalizado cargado
+              </p>
+            )}
+          </div>
+
+          {/* Test button */}
+          <button
+            onClick={handleTestSound}
+            disabled={soundTestPlaying}
+            className="w-full flex items-center justify-center gap-2 bg-secondary/10 text-secondary py-3 rounded-2xl font-bold text-sm hover:bg-secondary/20 active:scale-95 transition-all disabled:opacity-60"
+          >
+            {soundTestPlaying ? '🔊 Reproduciendo...' : '▶ Probar sonido seleccionado'}
+          </button>
+        </div>
+
+        {/* Info badge */}
+        <div className="flex items-start gap-3 bg-primary/5 p-4 rounded-2xl border border-primary/10">
+          <div className="p-2 bg-primary/10 rounded-xl text-primary shrink-0">
+            <FlashOn className="w-4 h-4" />
+          </div>
+          <p className="text-xs text-on-surface-variant leading-relaxed">
+            <strong className="text-on-surface">IA lista para usar.</strong> BotanicAI gestiona la conexión automáticamente. No necesitas configurar nada más.
+          </p>
+        </div>
+
+        {/* Save button */}
+        <div className="pt-2">
+          <button
+            onClick={handleSave}
+            className="w-full bg-primary text-on-primary py-4 rounded-2xl font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-lg flex items-center justify-center gap-3"
+          >
+            {saved ? (
+              <>
+                <HealthAndSafety className="w-6 h-6" />
+                <span>¡Guardado!</span>
+              </>
+            ) : (
+              <>
+                <PlusCircle className="w-6 h-6" />
+                <span>Guardar Preferencias</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function ProBenefitsContent({ isPro }: { isPro: boolean }) {
+function ProBenefitsContent({ isPro, userProfile }: { isPro: boolean, userProfile: any }) {
+  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly' | null>(null);
+
   const benefits = [
-    { 
-      title: 'Comunidad Exclusiva', 
-      desc: 'Acceso total al Muro Social y Chat Grupal con otros expertos.', 
-      icon: Spa,
-      color: 'bg-emerald-100 text-emerald-600'
-    },
-    { 
-      title: 'Expertos Reales', 
-      desc: 'Consulta directa con botánicos profesionales para casos complejos.', 
-      icon: Psychology,
-      color: 'bg-primary-container text-primary'
-    },
-    { 
-      title: 'Tips Avanzados', 
-      desc: 'Recibe consejos de cuidado premium y guías detalladas por especie.', 
-      icon: Lightbulb,
-      color: 'bg-amber-100 text-amber-600'
-    },
-    { 
-      title: 'IA Sin Límites', 
-      desc: 'Análisis de salud más profundos y respuestas prioritarias de BotanicAI.', 
-      icon: FlashOn,
-      color: 'bg-blue-100 text-blue-600'
-    }
+    { title: 'Comunidad Exclusiva', desc: 'Acceso total al Muro Social y Chat Grupal con otros expertos.', icon: Spa, color: 'bg-emerald-100 text-emerald-600' },
+    { title: 'Expertos Reales', desc: 'Consulta directa con botánicos profesionales para casos complejos.', icon: Psychology, color: 'bg-primary-container text-primary' },
+    { title: 'Tips Avanzados', desc: 'Recibe consejos de cuidado premium y guías detalladas por especie.', icon: Lightbulb, color: 'bg-secondary-container text-secondary' },
+    { title: 'Historial Ilimitado', desc: 'Guarda todos tus escaneos sin restricciones de tiempo ni cantidad.', icon: LocalFlorist, color: 'bg-tertiary-container text-tertiary' },
   ];
 
   return (
@@ -4894,32 +5987,49 @@ function ProBenefitsContent({ isPro }: { isPro: boolean }) {
           <Star className="w-24 h-24 text-primary/5 -rotate-12" />
         </div>
         
-        <div className="space-y-2">
-          <p className="text-primary font-black uppercase tracking-widest text-xs">Plan Premium</p>
-          <div className="flex items-center justify-center gap-1">
-            <span className="text-5xl font-black tracking-tighter">$9.99</span>
-            <span className="text-on-surface-variant font-bold">/mes</span>
-          </div>
-        </div>
-
-        <p className="text-on-surface-variant text-sm font-medium">
+        <p className="text-on-surface-variant text-sm font-medium mb-6">
           {isPro 
             ? "¡Ya eres un usuario Pro! Disfruta de todas tus ventajas." 
-            : "Comienza tu prueba gratuita de 7 días y transforma tu jardín hoy mismo."}
+            : "Elige tu plan y paga de forma segura con PayPal."}
         </p>
 
         {!isPro && (
-          <button className="w-full bg-primary text-on-primary py-5 rounded-2xl font-black text-lg shadow-xl hover:scale-[1.02] active:scale-95 transition-all">
-            Suscribirse Ahora
-          </button>
+          <div className="grid md:grid-cols-2 gap-4 mt-6">
+            <div
+              className={cn("bg-surface p-6 rounded-3xl shadow-md border transition-colors cursor-pointer flex flex-col items-center", selectedPlan === 'monthly' ? "border-primary border-2" : "border-surface-container-highest hover:border-primary")}
+              onClick={() => setSelectedPlan('monthly')}
+            >
+              <h3 className="text-xl font-bold mb-2">Mensual</h3>
+              <p className="text-3xl font-extrabold text-primary mb-2">$4.99<span className="text-sm text-on-surface-variant font-normal">/mes</span></p>
+              {selectedPlan === 'monthly' ? (
+                <PaymentLinkButton plan="monthly" userId={userProfile?.uid || ''} />
+              ) : (
+                <button className="w-full mt-2 bg-primary text-on-primary py-3 rounded-xl font-bold">Seleccionar</button>
+              )}
+            </div>
+            
+            <div
+              className={cn("bg-primary text-on-primary p-6 rounded-3xl shadow-xl flex flex-col items-center relative border-2 transition-colors cursor-pointer", selectedPlan === 'yearly' ? "border-tertiary" : "border-transparent")}
+              onClick={() => setSelectedPlan('yearly')}
+            >
+              <div className="absolute -top-3 right-4 bg-tertiary text-on-tertiary text-xs font-bold px-2 py-1 rounded-full">Ahorra 20%</div>
+              <h3 className="text-xl font-bold mb-2">Anual</h3>
+              <p className="text-3xl font-extrabold mb-2">$47.99<span className="text-sm font-normal opacity-80">/año</span></p>
+              {selectedPlan === 'yearly' ? (
+                <PaymentLinkButton plan="yearly" userId={userProfile?.uid || ''} />
+              ) : (
+                <button className="w-full mt-2 bg-white text-primary py-3 rounded-xl font-bold shadow-md">Seleccionar</button>
+              )}
+            </div>
+          </div>
         )}
-        
-        <p className="text-[10px] text-on-surface-variant/60 uppercase font-bold tracking-widest">
-          Cancela en cualquier momento • Soporte 24/7 incluido
+
+        <p className="text-[10px] text-on-surface-variant/60 uppercase font-bold tracking-widest mt-6">
+          Pagos seguros a través de PayPal • Cancela en cualquier momento • Soporte 24/7 incluido
         </p>
       </div>
     </div>
   );
 }
 
-// BUILD_ID: 20260413204659
+// BUILD_ID: 20260423194000

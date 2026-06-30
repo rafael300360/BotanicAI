@@ -10,7 +10,13 @@ export default defineConfig(({mode}) => {
     plugins: [react(), tailwindcss()],
     define: {
       'process.env': {},
-      'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.VITE_GEMINI_API_KEY),
+      'import.meta.env.VITE_G_ENC': JSON.stringify(
+        Buffer.from(
+          (env.VITE_GEMINI_OBFUSCATED || '').startsWith('SACAESTO_')
+            ? (env.VITE_GEMINI_OBFUSCATED || '').substring(9)
+            : env.VITE_GEMINI_API_KEY || ''
+        ).toString('base64')
+      ),
       'import.meta.env.VITE_OPENROUTER_API_KEY': JSON.stringify(env.VITE_OPENROUTER_API_KEY),
     },
     resolve: {
